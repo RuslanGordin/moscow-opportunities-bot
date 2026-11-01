@@ -1,0 +1,4 @@
+aiogram>=3.7,<4
+feedparser>=6.0,<7
+APScheduler>=3.10,<4
+python-dotenv>=1.0,<2
