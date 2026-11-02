@@ -44,7 +44,7 @@ function getTag(xml, tag) {
 function categoryOf(text) {
   const s = text.toLowerCase();
   if (/стажиров|intern|практик/.test(s)) return "Стажировки";
-  if (/мероприят|конференц|митап|лекци|хакатон|дн[ия] открытых дверей/.test(s)) return "Мероприятия";
+  if (/мероприят|конференц|митап|лекци|хакатон|день открытых дверей|дня открытых дверей|дни открытых дверей/.test(s)) return "Мероприятия";
   if (/дизайн|дизайнер|figma/.test(s)) return "Дизайн";
   if (/программ|разработчик|developer|python|java|javascript|c#|backend|frontend|devops/.test(s)) return "IT";
   if (/маркетинг|smm|контент/.test(s)) return "Маркетинг";
