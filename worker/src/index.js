@@ -125,7 +125,7 @@ function evaluateOpportunity(item, now = Date.now()) {
   if (!title || title.length < 8 || title.length > 240) {
     return { accepted: false, reason: "invalid_title", category, location };
   }
-  if (/^(новости|новость|дайджест|обзор|статья|подборка|анонс)\b/i.test(title)) {
+  if (/^(новости|новость|дайджест|обзор|статья|подборка)\b/i.test(title)) {
     return { accepted: false, reason: "not_an_opportunity", category, location };
   }
   if (category === "Другое") {
