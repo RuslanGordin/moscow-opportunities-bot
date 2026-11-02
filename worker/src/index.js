@@ -162,7 +162,7 @@ function categoryHashtag(category) {
 
 function formatOpportunityPost(item) {
   const category = item.category || "Другое";
-  const location = locationOf([item.title, item.summary].join(" "));
+  const location = evaluateOpportunity({ ...item, feedUrl: item.feed_url }).location;
   const locationLabel = location === "moscow" ? "Москва / Московская область"
     : location === "remote" ? "Удалённо / онлайн" : "";
   const summary = String(item.summary || "").trim();
@@ -386,11 +386,12 @@ async function handleCommand(message, env) {
 
     if (command === "approve") {
       const candidate = await env.DB.prepare(`
-        SELECT title, summary FROM opportunities
-        WHERE id = ? AND status = 'pending'
+        SELECT o.title, o.summary, f.url AS feed_url
+        FROM opportunities o LEFT JOIN feeds f ON f.id = o.feed_id
+        WHERE o.id = ? AND o.status = 'pending'
       `).bind(id).first();
 
-      if (candidate && !evaluateOpportunity(candidate).accepted) {
+      if (candidate && !evaluateOpportunity({ ...candidate, feedUrl: candidate.feed_url }).accepted) {
         await env.DB.prepare(`
           UPDATE opportunities SET status = 'rejected'
           WHERE id = ? AND status = 'pending'
@@ -417,12 +418,14 @@ async function handleCommand(message, env) {
     }
 
     const item = await env.DB.prepare(`
-      SELECT * FROM opportunities WHERE id = ? AND status = 'approved'
+      SELECT o.*, f.url AS feed_url
+      FROM opportunities o LEFT JOIN feeds f ON f.id = o.feed_id
+      WHERE o.id = ? AND o.status = 'approved'
     `).bind(id).first();
 
     if (!item) return send(env, chatId, "Нет такого одобренного материала.");
 
-    if (!evaluateOpportunity(item).accepted) {
+    if (!evaluateOpportunity({ ...item, feedUrl: item.feed_url }).accepted) {
       await env.DB.prepare(`
         UPDATE opportunities SET status = 'rejected'
         WHERE id = ? AND status = 'approved' AND telegram_message_id IS NULL
