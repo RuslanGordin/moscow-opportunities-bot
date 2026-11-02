@@ -105,7 +105,7 @@ test("ignores duplicate URLs and does not collect non-http links", async () => {
 });
 
 
-function createPublishDatabase() {
+function createPublishDatabase({ failFinalize = false } = {}) {
   const row = {
     id: 7,
     status: "approved",
@@ -138,6 +138,7 @@ function createPublishDatabase() {
           }
 
           if (sql.includes("SET status = 'published'")) {
+            if (failFinalize) throw new Error("Simulated D1 write failure");
             if (row.id === values[1] && row.status === "approved" && row.telegram_message_id === -1) {
               row.status = "published";
               row.telegram_message_id = values[0];
@@ -206,6 +207,53 @@ test("only one of two concurrent publish commands sends to the channel", async (
     assert.doesNotMatch(channelMessages[0].text, /\\\\n/);
     assert.equal(DB.row.status, "published");
     assert.notEqual(DB.row.telegram_message_id, -1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+
+test("keeps the publication claim when Telegram accepted a post but D1 finalization fails", async () => {
+  const DB = createPublishDatabase({ failFinalize: true });
+  const originalFetch = globalThis.fetch;
+  const channelMessages = [];
+
+  globalThis.fetch = async (url, options) => {
+    const payload = JSON.parse(options.body);
+    if (payload.chat_id === "@test_channel") {
+      channelMessages.push(payload);
+      return Response.json({ ok: true, result: { message_id: 123 } });
+    }
+    return Response.json({ ok: true, result: { message_id: 999 } });
+  };
+
+  const env = {
+    DB,
+    BOT_TOKEN: "test-token",
+    CHANNEL_ID: "@test_channel",
+    ADMIN_IDS: "42"
+  };
+
+  const request = () => new Request("https://worker.example/telegram", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message: {
+        chat: { id: 42 },
+        from: { id: 42 },
+        text: "/publish 7"
+      }
+    })
+  });
+
+  try {
+    await worker.fetch(request(), env);
+    assert.equal(channelMessages.length, 1);
+    assert.equal(DB.row.telegram_message_id, -1);
+
+    await worker.fetch(request(), env);
+    assert.equal(channelMessages.length, 1);
+    assert.equal(DB.row.telegram_message_id, -1);
   } finally {
     globalThis.fetch = originalFetch;
   }
