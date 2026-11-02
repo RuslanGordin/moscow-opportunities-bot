@@ -1,47 +1,56 @@
-# Cloudflare Worker source
+# Cloudflare Worker
 
-This directory contains the Worker source supplied by the project owner, plus a Wrangler configuration and a D1 schema reference.
+Эта папка содержит исходный код Telegram-бота на Cloudflare Workers.
 
-**This is a source-control copy only. It has not been deployed to Cloudflare.**
-
-## Existing production resources
+## Существующие production-ресурсы
 
 - Worker: `moscow-opportunities-bot`
-- D1 database: `moscow-opportunities-db`
+- D1: `moscow-opportunities-db`
 - D1 binding: `DB`
-- Telegram channel: `@moscow_opportunities`
+- Telegram-канал: `@moscow_opportunities`
 
-## Files
+Конфигурация ссылается на существующую D1 по её текущему ID. Не создавайте вторую базу или Worker без отдельной технической причины.
 
-- `src/index.js` — Telegram webhook, RSS collection, moderation commands and scheduled collection. Open-day announcements are classified as events; clearly senior/middle/lead roles and roles explicitly requiring 2+ years of experience are filtered out; approval and publication also re-check older queued items; `/publish` uses an atomic D1 claim to prevent concurrent duplicate sends.
-- `schema.sql` — reference D1 schema checked against the existing production application tables and indexes on 2026-11-02. It is not a migration to run against the existing database.
-- `wrangler.toml` — Wrangler configuration referencing the existing D1 database ID.
+## Файлы
 
-## Configuration
+- `src/index.js` — Telegram webhook, RSS-сбор, фильтр вакансий, команды модерации и публикация.
+- `wrangler.toml` — конфигурация Worker, D1 binding, переменные и почасовой Cron Trigger.
+- `schema.sql` — справочная схема существующих таблиц. Не запускать как миграцию на production.
+- `test/worker.test.js` — тесты сбора, фильтрации, форматирования и безопасной публикации.
 
-The Worker expects these encrypted secrets in Cloudflare:
+## Настройки Worker
+
+Зашифрованные Cloudflare Secrets:
 
 - `BOT_TOKEN`
 - `WEBHOOK_SECRET`
 - `SETUP_SECRET`
 
-It also expects the following variables:
+Переменные:
 
 - `CHANNEL_ID`
 - `ADMIN_IDS`
 
-Never commit bot tokens or other secrets.
+Секреты не должны попадать в репозиторий или логи.
 
-## Safety before deployment
+## Поведение
 
-1. The source was supplied by the project owner as a copy of the current Worker editor code; this repository copy has not been independently compared with a fresh Cloudflare export.
-2. The D1 application tables and indexes were checked read-only against `schema.sql`; no production database changes were made.
-3. Test against a separate staging Worker and staging database before deploying any code.
-4. Verify webhook configuration, secrets, and scheduled collection before considering production deployment.
+- RSS-сбор добавляет новые материалы в статусе `pending`.
+- Повторяющиеся URL игнорируются.
+- Очевидные вакансии Senior/Middle/Lead и требования от двух лет опыта отфильтровываются.
+- Сомнительные случаи остаются на ручную модерацию.
+- Публикация выполняется только после `/approve ID` и команды `/publish ID`.
+- Перед отправкой публикация атомарно резервируется в D1, чтобы параллельные команды не отправили один материал дважды.
+- Если Telegram подтвердил отправку, но запись результата в D1 завершилась ошибкой, резервирование сохраняется. Это предотвращает повторную публикацию; такую запись нужно сверить вручную с каналом перед восстановлением.
 
-The scheduled handler collects RSS items into the pending queue. Publishing remains a manual admin action using `/approve ID` and `/publish ID`.
+## Расписание
 
+В `wrangler.toml` настроен Cron Trigger `0 * * * *` — запуск в начале каждого часа. Изменение расписания вступит в силу только после развёртывания соответствующей версии Worker. Наличие обработчика `scheduled` в исходниках само по себе не означает, что Cron уже активен в production.
 
-## Student-audience filtering
+## Production safety
 
-The collector skips clearly experienced vacancies (for example, `#senior`, middle/lead roles, or explicit requirements of two or more years of experience). The approval and publish commands also re-check older queued records so an already-collected senior vacancy cannot slip through. Ambiguous vacancies remain in the manual review queue rather than being automatically discarded.
+- Изменения в GitHub не равны deploy.
+- Не запускайте `schema.sql` на существующей production D1.
+- Не меняйте production secrets, webhook или настройки Worker без проверки.
+- Не выполняйте deploy, пока не проверены целевая конфигурация, тесты и текущая версия production Worker.
+- Новая staging-инфраструктура для текущего проекта не требуется.
