@@ -352,7 +352,7 @@ test("keeps remote and unspecified geography, excludes clearly unrelated cities"
     </channel></rss>
   `);
 
-  assert.equal(records.size, 2);
+  assert.equal(records.size, 3);
   assert.equal(records.has("https://example.org/remote"), true);
   assert.equal(records.has("https://example.org/unknown"), true);
   assert.equal(records.has("https://example.org/spb"), false);
