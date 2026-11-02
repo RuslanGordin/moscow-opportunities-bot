@@ -1,24 +1,43 @@
-# Cloudflare Worker migration copy
+# Cloudflare Worker source
 
-Reconstructed, version-controlled implementation for the existing moscow-opportunities-bot.
+This directory contains the Worker source supplied by the project owner, plus a Wrangler configuration template and D1 schema reference.
 
-**Not deployed. Do not connect to production until compared with the live Worker and existing D1 binding verified.**
+**This is a source-control copy only. It has not been deployed to Cloudflare.**
 
-- src/index.js: Telegram webhook, RSS collection, moderation, scheduled collection.
-- schema.sql: reference schema for D1.
-- wrangler.toml: config template; database ID is intentionally a placeholder.
+## Existing production resources
 
-Existing resources:
-- Worker: moscow-opportunities-bot
-- D1: moscow-opportunities-db
-- Binding: DB
-- Channel: @moscow_opportunities
+- Worker: `moscow-opportunities-bot`
+- D1 database: `moscow-opportunities-db`
+- D1 binding: `DB`
+- Telegram channel: `@moscow_opportunities`
 
-Encrypted secrets required in Cloudflare: BOT_TOKEN, WEBHOOK_SECRET, SETUP_SECRET.
-Variables: CHANNEL_ID, ADMIN_IDS.
+## Files
 
-Known behavior preserved: /myid, /start, /help, /collect, /queue, /approve, /reject, /publish, /feeds, /addfeed, /stats; /health, authenticated /setup, /telegram webhook, hourly scheduled collection.
+- `src/index.js` — Telegram webhook, RSS collection, moderation commands and scheduled collection.
+- `schema.sql` — reference D1 schema; compare it with the live database before any migration.
+- `wrangler.toml` — Wrangler configuration template. The D1 database ID is deliberately a placeholder.
 
-Improvements: event/open-day classification takes priority over IT keywords; exact repeated titles from the last 45 days are skipped; items are never auto-published and remain pending for manual approval.
+## Configuration
 
-Before deployment: compare live source, confirm exact D1 schema and database ID, test in staging, then configure the production build.
+The Worker expects these encrypted secrets in Cloudflare:
+
+- `BOT_TOKEN`
+- `WEBHOOK_SECRET`
+- `SETUP_SECRET`
+
+It also expects the following variables:
+
+- `CHANNEL_ID`
+- `ADMIN_IDS`
+
+Never commit bot tokens or other secrets.
+
+## Safety before deployment
+
+1. Compare this source with the currently deployed Worker.
+2. Confirm the exact ID and schema of the existing D1 database.
+3. Replace the placeholder database ID only after that verification.
+4. Test against a separate staging Worker and staging database.
+5. Verify webhook configuration and scheduled collection before considering production deployment.
+
+The scheduled handler collects RSS items into the pending queue. Publishing remains a manual admin action using `/approve ID` and `/publish ID`.
