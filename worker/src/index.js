@@ -135,8 +135,9 @@ function evaluateOpportunity(item, now = Date.now()) {
     return { accepted: false, reason: location === "outside" ? "outside_moscow" : "location_unknown", category, location };
   }
 
-  const dateValue = item.source_published_at || item.discovered_at || "";
-  const publishedAt = dateValue ? Date.parse(dateValue) : NaN;
+  const sourceDate = item.source_published_at ? Date.parse(item.source_published_at) : NaN;
+  const discoveredDate = item.discovered_at ? Date.parse(item.discovered_at) : NaN;
+  const publishedAt = Number.isFinite(sourceDate) ? sourceDate : discoveredDate;
   const maxAgeDays = category === "Мероприятия" ? 45
     : category === "Гранты и конкурсы" || category === "Образование" ? 60 : 35;
   if (Number.isFinite(publishedAt) && now - publishedAt > maxAgeDays * 86400000) {
