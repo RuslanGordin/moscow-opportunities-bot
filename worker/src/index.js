@@ -36,7 +36,7 @@ function decodeXml(s = "") {
 
 function getTag(xml, tag) {
   const match = xml.match(new RegExp(
-    `<${tag}(?:\s[^>]*)?>([\s\\S]*?)<\\/${tag}>`, "i"
+    \`<\${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/\${tag}>\`, "i"
   ));
   return match ? decodeXml(match[1]) : "";
 }
