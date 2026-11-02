@@ -1,0 +1,17 @@
+name = "moscow-opportunities-bot"
+main = "src/index.js"
+compatibility_date = "2026-11-02"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "moscow-opportunities-db"
+database_id = "35d6dd73-fb90-448b-bc2d-fe121735f3d9"
+
+[vars]
+CHANNEL_ID = "@moscow_opportunities"
+ADMIN_IDS = "1472131271"
+
+# Configure as encrypted Worker secrets in Cloudflare, never commit:
+# BOT_TOKEN
+# WEBHOOK_SECRET
+# SETUP_SECRET
