@@ -41,6 +41,16 @@ function getTag(xml, tag) {
   return match ? decodeXml(match[1]) : "";
 }
 
+function isClearlyExperienced(text) {
+  const s = String(text || "").toLowerCase().replace(/[–—]/g, "-");
+  return /\\b(senior|middle|mid-level|lead|team lead|principal|staff engineer)\\b/i.test(s) ||
+    /#(senior|middle|mid|lead)\\b/i.test(s) ||
+    /\\b(ведущий специалист|ведущий инженер|руководитель группы|руководитель команды)\\b/i.test(s) ||
+    /опыт(?:а работы| работы)?\\s*(?:не менее\\s*)?(?:от\\s*)?[2-9]\\d?\\s*(?:\\+\\s*)?(?:лет|года|год)/i.test(s) ||
+    /(?:от|минимум|не менее)\\s*[2-9]\\d?\\s*(?:лет|года|год)\\s*(?:опыта|опыт)/i.test(s) ||
+    /\\b[2-9]\\d?\\+?\\s*years?\\s+(?:of\\s+)?experience\\b/i.test(s);
+}
+
 function categoryOf(text) {
   const s = text.toLowerCase();
   if (/стажиров|intern|практик/.test(s)) return "Стажировки";
@@ -104,7 +114,11 @@ async function collect(env) {
 
         if (!title || !link || !/^https?:\/\//i.test(link)) continue;
 
-        const category = categoryOf(title + " " + description);
+        const fullText = title + " " + description;
+        // Keep clearly experienced roles out of a student-focused channel.
+        if (isClearlyExperienced(fullText)) continue;
+
+        const category = categoryOf(fullText);
 
         const result = await env.DB.prepare(`
           INSERT OR IGNORE INTO opportunities
@@ -175,6 +189,21 @@ async function handleCommand(message, env) {
       return send(env, chatId, "Укажи ID материала. Например: /approve 3");
     }
 
+    if (command === "approve") {
+      const candidate = await env.DB.prepare(`
+        SELECT title, summary FROM opportunities
+        WHERE id = ? AND status = 'pending'
+      `).bind(id).first();
+
+      if (candidate && isClearlyExperienced(candidate.title + " " + (candidate.summary || ""))) {
+        await env.DB.prepare(`
+          UPDATE opportunities SET status = 'rejected'
+          WHERE id = ? AND status = 'pending'
+        `).bind(id).run();
+        return send(env, chatId, `Материал №${id} отклонён: вакансия требует значительного опыта и не подходит для студенческого канала.`);
+      }
+    }
+
     const status = command === "approve" ? "approved" : "rejected";
     const result = await env.DB.prepare(`
       UPDATE opportunities SET status = ?
@@ -197,6 +226,14 @@ async function handleCommand(message, env) {
     `).bind(id).first();
 
     if (!item) return send(env, chatId, "Нет такого одобренного материала.");
+
+    if (isClearlyExperienced(item.title + " " + (item.summary || ""))) {
+      await env.DB.prepare(`
+        UPDATE opportunities SET status = 'rejected'
+        WHERE id = ? AND status = 'approved' AND telegram_message_id IS NULL
+      `).bind(id).run();
+      return send(env, chatId, `Материал №${id} отклонён: вакансия требует значительного опыта и не подходит для студенческого канала.`);
+    }
 
     // Claim atomically before sending so concurrent commands cannot both publish.
     const claim = await env.DB.prepare(`
