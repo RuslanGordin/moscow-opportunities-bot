@@ -282,7 +282,7 @@ test("keeps the publication claim when Telegram accepted a post but D1 finalizat
 });
 
 test("keeps opportunities for different experience levels and classifies them by title", async () => {
-  const records = await runScheduledCollection(\`
+  const records = await runScheduledCollection(`
     <rss><channel>
       <item>
         <title>Senior Business Development Manager</title>
@@ -303,7 +303,7 @@ test("keeps opportunities for different experience levels and classifies them by
         <guid>csharp-intern</guid>
       </item>
     </channel></rss>
-  \`);
+  `);
 
   assert.equal(records.size, 3);
   assert.equal(records.get("https://example.org/senior-manager").category, "Продажи");
@@ -312,20 +312,20 @@ test("keeps opportunities for different experience levels and classifies them by
 });
 
 test("does not misclassify a job because its description mentions events", async () => {
-  const records = await runScheduledCollection(\`
+  const records = await runScheduledCollection(`
     <rss><channel><item>
       <title>HR manager</title>
       <link>https://example.org/hr-manager</link>
       <description>Организация мероприятий и встреч команды</description>
       <guid>hr-manager</guid>
     </item></channel></rss>
-  \`);
+  `);
 
   assert.equal(records.get("https://example.org/hr-manager").category, "Работа");
 });
 
 test("classifies education, events, grants, business and volunteering", async () => {
-  const records = await runScheduledCollection(\`
+  const records = await runScheduledCollection(`
     <rss><channel>
       <item><title>Грант для молодых исследователей</title><link>https://example.org/grant</link><guid>grant</guid></item>
       <item><title>Конференция по технологиям</title><link>https://example.org/event</link><guid>event</guid></item>
@@ -333,7 +333,7 @@ test("classifies education, events, grants, business and volunteering", async ()
       <item><title>Акселератор для стартапов</title><link>https://example.org/startup</link><guid>startup</guid></item>
       <item><title>Волонтёрская программа</title><link>https://example.org/volunteer</link><guid>volunteer</guid></item>
     </channel></rss>
-  \`);
+  `);
 
   assert.equal(records.get("https://example.org/grant").category, "Гранты и конкурсы");
   assert.equal(records.get("https://example.org/event").category, "Мероприятия");
@@ -343,13 +343,13 @@ test("classifies education, events, grants, business and volunteering", async ()
 });
 
 test("keeps remote and unspecified geography, excludes clearly unrelated cities", async () => {
-  const records = await runScheduledCollection(\`
+  const records = await runScheduledCollection(`
     <rss><channel>
       <item><title>Удалённая стажировка аналитика</title><link>https://example.org/remote</link><description>Работа из любой точки России</description><guid>remote</guid></item>
       <item><title>Специалист по документам (Санкт-Петербург)</title><link>https://example.org/spb</link><description>Работа в офисе</description><guid>spb</guid></item>
       <item><title>Стажировка в сфере кибербезопасности</title><link>https://example.org/unknown</link><description>Место работы уточняется</description><guid>unknown</guid></item>
     </channel></rss>
-  \`);
+  `);
 
   assert.equal(records.size, 2);
   assert.equal(records.has("https://example.org/remote"), true);
