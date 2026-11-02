@@ -254,6 +254,8 @@ async function handleCommand(message, env) {
       `<a href="${escapeHtml(item.url)}">Подробнее об источнике</a>\n\n` +
       `Источник: ${escapeHtml(item.url)}`;
 
+    let telegramAcceptedMessage = false;
+
     try {
       const sent = await telegram(env, "sendMessage", {
         chat_id: env.CHANNEL_ID,
@@ -261,21 +263,31 @@ async function handleCommand(message, env) {
         parse_mode: "HTML",
         disable_web_page_preview: false
       });
+      telegramAcceptedMessage = true;
 
-      await env.DB.prepare(`
+      const saved = await env.DB.prepare(`
         UPDATE opportunities
         SET status = 'published', telegram_message_id = ?,
             published_at = CURRENT_TIMESTAMP
         WHERE id = ? AND status = 'approved' AND telegram_message_id = -1
       `).bind(sent.message_id, id).run();
 
+      if (!saved.meta.changes) {
+        throw new Error("Telegram accepted the post, but D1 did not finalize the publication record.");
+      }
+
       return send(env, chatId, `Материал №${id} опубликован.`);
     } catch (error) {
-      // Release the claim when Telegram rejects the send, allowing a retry.
-      await env.DB.prepare(`
-        UPDATE opportunities SET telegram_message_id = NULL
-        WHERE id = ? AND status = 'approved' AND telegram_message_id = -1
-      `).bind(id).run();
+      if (!telegramAcceptedMessage) {
+        // Telegram did not confirm the send: release the claim for a safe retry.
+        await env.DB.prepare(`
+          UPDATE opportunities SET telegram_message_id = NULL
+          WHERE id = ? AND status = 'approved' AND telegram_message_id = -1
+        `).bind(id).run();
+      } else {
+        // Telegram accepted the post. Keep the claim to prevent a duplicate retry.
+        console.error("Publication accepted by Telegram but not finalized in D1; manual reconciliation is required:", id, error);
+      }
       throw error;
     }
   }
