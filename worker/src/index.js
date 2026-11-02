@@ -42,6 +42,17 @@ function getTag(xml, tag) {
   return match ? decodeXml(match[1]) : "";
 }
 
+function getFeedLink(item) {
+  const match = item.match(/<link\b([^>]*)\/?\s*>/i);
+  if (!match) return "";
+
+  const href = match[1].match(/\bhref\s*=\s*(?:"([^"]*)"|'([^']*)')/i);
+  if (href) return decodeXml(href[1] || href[2] || "");
+
+  const content = item.match(/<link(?:\s[^>]*)?>([\s\S]*?)<\/link>/i);
+  return content ? decodeXml(content[1]) : "";
+}
+
 function isClearlyExperienced(text) {
   const s = String(text || "").toLowerCase().replace(/[–—]/g, "-");
   return /\b(senior|middle|mid-level|lead|team lead|principal|staff engineer)\b/i.test(s) ||
@@ -105,13 +116,17 @@ async function collect(env) {
       if (!response.ok) continue;
 
       const xml = await response.text();
-      const items = xml.match(/<item(?:\s[^>]*)?>[\s\S]*?<\/item>/gi) || [];
+      const items = xml.match(/<item\b[^>]*>[\s\S]*?<\/item>|<entry\b[^>]*>[\s\S]*?<\/entry>/gi) || [];
 
       for (const item of items) {
         const title = getTag(item, "title");
-        const link = getTag(item, "link");
-        const description = getTag(item, "description").slice(0, 500);
-        const pubDate = getTag(item, "pubDate");
+        const link = getFeedLink(item);
+        const description = (
+          getTag(item, "description") ||
+          getTag(item, "summary") ||
+          getTag(item, "content")
+        ).slice(0, 500);
+        const pubDate = getTag(item, "pubDate") || getTag(item, "published") || getTag(item, "updated");
 
         if (!title || !link || !/^https?:\/\//i.test(link)) continue;
 
@@ -126,7 +141,7 @@ async function collect(env) {
           (feed_id, guid, title, summary, url, category, source_published_at)
           VALUES (?, ?, ?, ?, ?, ?, ?)
         `).bind(
-          feed.id, getTag(item, "guid") || link,
+          feed.id, getTag(item, "guid") || getTag(item, "id") || link,
           title, description, link, category, pubDate || null
         ).run();
 

@@ -79,6 +79,28 @@ test("classifies an open day announcement as an event", async () => {
   assert.equal([...records.values()][0].category, "Мероприятия");
 });
 
+test("collects Atom entries with href links and summary content", async () => {
+  const records = await runScheduledCollection(`
+    <feed xmlns="http://www.w3.org/2005/Atom">
+      <entry>
+        <id>atom-internship-1</id>
+        <title>Стажировка backend-разработчика</title>
+        <link rel="alternate" href="https://example.org/atom-internship" />
+        <summary>Стажировка для начинающих специалистов</summary>
+        <published>2026-11-01T10:00:00Z</published>
+      </entry>
+    </feed>
+  `);
+
+  assert.equal(records.size, 1);
+  const item = [...records.values()][0];
+  assert.equal(item.url, "https://example.org/atom-internship");
+  assert.equal(item.guid, "atom-internship-1");
+  assert.equal(item.category, "Стажировки");
+  assert.match(item.summary, /Стажировка для начинающих специалистов/);
+  assert.equal(item.source_published_at, "2026-11-01T10:00:00Z");
+});
+
 test("ignores duplicate URLs and does not collect non-http links", async () => {
   const records = await runScheduledCollection(`
     <rss><channel>
