@@ -284,11 +284,11 @@ async function handleCommand(message, env) {
     }
     const result = await cleanupPending(env, apply);
     const examples = result.examples.length
-      ? "\\nПримеры отклоняемых:\\n" + result.examples.map(escapeHtml).join("\\n")
+      ? "\nПримеры отклоняемых:\n" + result.examples.map(escapeHtml).join("\n")
       : "";
     if (!apply) {
       return send(env, chatId,
-        `Проверка очереди (без изменений):\\nОжидают модерации: ${result.total}\\nБудут отклонены как другие города без удалённого формата: ${result.rejected}\\nКатегории будут исправлены: ${result.recategorized}\\nГеография не определена (останутся на проверке): ${result.unknown}${examples}\\n\\nЧтобы применить: /cleanup confirm`);
+        `Проверка очереди (без изменений):\nОжидают модерации: ${result.total}\nБудут отклонены как другие города без удалённого формата: ${result.rejected}\nКатегории будут исправлены: ${result.recategorized}\nГеография не определена (останутся на проверке): ${result.unknown}${examples}\n\nЧтобы применить: /cleanup confirm`);
     }
     return send(env, chatId,
       `Очередь обработана. Проверено: ${result.total}. Отклонено по географии: ${result.rejected}. Категорий исправлено: ${result.recategorized}. Неопределённая география оставлена на модерации: ${result.unknown}.`);
