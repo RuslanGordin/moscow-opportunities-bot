@@ -2,16 +2,12 @@ const HELP = `
 Команды бота:
 
 /myid — узнать свой Telegram ID
-/collect — собрать новые вакансии
-/queue — показать очередь
-/approve ID — одобрить материал
-/reject ID — отклонить материал
-/publish ID — опубликовать одобренный материал
+/collect — запустить автоматический сбор и отбор
+/queue — показать автоматически отобранные материалы
+/publish ID — опубликовать отобранный материал
 /feeds — список RSS-источников
 /addfeed Название | URL — добавить источник
 /stats — статистика
-/cleanup — проверить старую очередь
-/cleanup confirm — применить очистку
 `;
 
 function escapeHtml(value = "") {
@@ -62,11 +58,11 @@ function categoryOf(text) {
   if (/стартап|предпринимател|бизнес-иде|бизнес проект|партн[её]рств|ищем соосновател|соосновател|акселератор/.test(s)) return "Бизнес и проекты";
   if (/грант|стипенди|конкурс|преми|финансировани[ея]/.test(s)) return "Гранты и конкурсы";
   if (/волонт[её]р|добровол|благотвор|социальн(?:ый|ого) проект/.test(s)) return "Волонтёрство";
-  if (/мероприят|конференц|митап|meetup|лекци|вебинар|хакатон|выставк|форум|день открытых дверей|дня открытых дверей|дни открытых дверей/.test(s)) return "Мероприятия";
+  if (/мероприят|конференц|митап|meetup|встреч|лекци|вебинар|хакатон|выставк|форум|день открытых дверей|дня открытых дверей|дни открытых дверей/.test(s)) return "Мероприятия";
   if (/курс(?:ы|а|ов)?|обучени|образовательн|школа программирован|интенсив|повышени[ея] квалификац/.test(s)) return "Образование";
   if (/стажиров|стаж[её]р|intern(ship)?|практик(?:а|и|у|ой)|trainee/.test(s)) return "Стажировки";
   if (/работа|ваканси|зарплат|оклад|требуется|ищем сотрудник|открыта позици|job\b|в команду|\bmanager\b|менеджер|специалист|руководитель|директор|\bhr\b/.test(s)) {
-    if (/разработчик|developer|программист|инженер|техническ|тестировщик|qa\b|devops|аналитик|кибербезопас|информационн(?:ая|ой) безопасност|backend|frontend|бэкенд|фронтенд|python|java|javascript|c#/.test(s)) return "IT";
+    if (/разработчик|developer|программист|инженер|техническ|technical|тестировщик|qa\b|devops|аналитик|кибербезопас|информационн(?:ая|ой) безопасност|backend|frontend|бэкенд|фронтенд|python|java|javascript|c#/.test(s)) return "IT";
     if (/дизайн|дизайнер|figma|ux|ui\/ux/.test(s)) return "Дизайн";
     if (/маркетинг|smm|контент|копирайт|seo/.test(s)) return "Маркетинг";
     if (/продаж|аккаунт|business development|коммерческ/.test(s)) return "Продажи";
@@ -78,25 +74,80 @@ function categoryOf(text) {
   return "Другое";
 }
 
+const OUTSIDE_CITIES = [
+  "санкт-петербург", "петербург", "спб", "екатеринбург", "новосибирск", "казань",
+  "нижний новгород", "краснодар", "ростов-на-дону", "самара", "уфа", "челябинск",
+  "пермь", "воронеж", "красноярск", "омск", "тюмень", "ярославль", "рыбинск",
+  "тбилиси", "минск", "алматы", "астана", "нур-султан", "владивосток", "иркутск",
+  "барнаул", "томск", "кемерово", "новокузнецк", "саратов", "пенза", "тула",
+  "калуга", "рязань", "липецк", "тамбов", "иваново", "владимир", "брянск",
+  "курск", "орёл", "орел", "белгород", "ставрополь", "сочи", "мурманск",
+  "архангельск", "петрозаводск", "череповец", "вологда", "смоленск", "псков",
+  "великий новгород", "калининград", "хабаровск", "благовещенск", "якутск",
+  "южно-сахалинск", "магадан", "чита", "улан-удэ", "абакан", "сургут",
+  "нижневартовск", "ханты-мансийск", "набережные челны", "тольятти", "йошкар-ола",
+  "чебоксары", "ижевск", "киров", "оренбург", "астрахань", "волгоград"
+];
+
 function locationOf(text) {
-  const s = String(text || "").toLowerCase();
-  if (/удал[её]нно|remote|работа из любой точки|из любой точки|по всей россии|вся россия|онлайн/.test(s)) return "remote";
-  const outsideMoscow = [
-    "санкт-петербург", "спб", "екатеринбург", "новосибирск", "казань",
-    "нижний новгород", "краснодар", "ростов-на-дону", "самара", "уфа",
-    "челябинск", "пермь", "воронеж", "красноярск", "омск", "тюмень",
-    "ярославль", "рыбинск", "тбилиси", "минск", "алматы"
-  ];
-  // A role available in Moscow remains relevant even if the employer lists several cities.
-  if (/москва|московская область|подмосковье|московской обл/.test(s)) return "moscow";
-  if (outsideMoscow.some(city => s.includes(city))) return "outside";
+  const s = String(text || "").toLowerCase().replace(/ё/g, "е");
+  if (/удал[её]нн|remote|работа из любой точки|из любой точки|по всей россии|вся россия|любой регион|любом городе|независимо от местоположения|онлайн|online/.test(s)) return "remote";
+  if (/москв|moscow|подмосков/.test(s)) return "moscow";
+  if (OUTSIDE_CITIES.some(city => s.includes(city))) return "outside";
   return "unknown";
 }
 
-function isRelevantLocation(text) {
-  // Unknown geography stays in the moderation queue; only explicit other-city roles are skipped.
-  return locationOf(text) !== "outside";
+function canonicalUrl(value) {
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    for (const key of [...url.searchParams.keys()]) {
+      if (/^(utm_|yclid|gclid|fbclid|ref$|source$)/i.test(key)) url.searchParams.delete(key);
+    }
+    return url.toString();
+  } catch {
+    return value;
+  }
 }
+
+function evaluateOpportunity(item, now = Date.now()) {
+  const title = String(item.title || "").trim();
+  const summary = String(item.summary || "").trim();
+  const category = categoryOf(title);
+  let location = locationOf(title + " " + summary);
+
+  // Official HSE announcements are Moscow-oriented unless the item explicitly says otherwise.
+  if (location === "unknown" &&
+      /hse\.ru\/rss\/rss_announcement\.rss/i.test(String(item.feedUrl || ""))) {
+    location = "moscow";
+  }
+
+  if (!title || title.length < 8 || title.length > 240) {
+    return { accepted: false, reason: "invalid_title", category, location };
+  }
+  if (/^(новости|новость|дайджест|обзор|статья|подборка)\b/i.test(title)) {
+    return { accepted: false, reason: "not_an_opportunity", category, location };
+  }
+  if (category === "Другое") {
+    return { accepted: false, reason: "unclassified", category, location };
+  }
+  if (location === "outside" || location === "unknown") {
+    return { accepted: false, reason: location === "outside" ? "outside_moscow" : "location_unknown", category, location };
+  }
+
+  const sourceDate = item.source_published_at ? Date.parse(item.source_published_at) : NaN;
+  const discoveredDate = item.discovered_at ? Date.parse(item.discovered_at) : NaN;
+  const publishedAt = Number.isFinite(sourceDate) ? sourceDate : discoveredDate;
+  const maxAgeDays = category === "Мероприятия" ? 45
+    : category === "Гранты и конкурсы" || category === "Образование" ? 60 : 35;
+  if (Number.isFinite(publishedAt) && now - publishedAt > maxAgeDays * 86400000) {
+    return { accepted: false, reason: "stale", category, location };
+  }
+
+  return { accepted: true, reason: "accepted", category, location };
+}
+
+export { evaluateOpportunity };
 
 function categoryHashtag(category) {
   return ({
@@ -111,10 +162,9 @@ function categoryHashtag(category) {
 
 function formatOpportunityPost(item) {
   const category = item.category || "Другое";
-  const location = locationOf([item.title, item.summary].join(" "));
+  const location = evaluateOpportunity({ ...item, feedUrl: item.feed_url }).location;
   const locationLabel = location === "moscow" ? "Москва / Московская область"
-    : location === "remote" ? "Удалённо / онлайн"
-    : location === "unknown" ? "География уточняется" : "";
+    : location === "remote" ? "Удалённо / онлайн" : "";
   const summary = String(item.summary || "").trim();
   const parts = [
     "<b>" + escapeHtml(item.title) + "</b>",
@@ -160,16 +210,28 @@ async function collect(env) {
   ).all();
 
   let added = 0;
+  let filtered = 0;
+  let errors = 0;
 
   for (const feed of feeds.results || []) {
     try {
       const response = await fetch(feed.url, {
-        headers: { "User-Agent": "MoscowOpportunitiesBot/1.0" }
+        headers: { "User-Agent": "MoscowOpportunitiesBot/2.0" },
+        signal: AbortSignal.timeout(12000)
       });
-      if (!response.ok) continue;
+      if (!response.ok) {
+        errors++;
+        console.error("RSS HTTP error:", feed.name, response.status);
+        continue;
+      }
 
       const xml = await response.text();
-      const items = xml.match(/<item\b[^>]*>[\s\S]*?<\/item>|<entry\b[^>]*>[\s\S]*?<\/entry>/gi) || [];
+      if (xml.length > 2_000_000) {
+        errors++;
+        console.error("RSS feed too large:", feed.name);
+        continue;
+      }
+      const items = xml.match(/<item\b[^>]*>[\d\D]*?<\/item>|<entry\b[^>]*>[\d\D]*?<\/entry>/gi) || [];
 
       for (const item of items) {
         const title = getTag(item, "title");
@@ -178,79 +240,96 @@ async function collect(env) {
           getTag(item, "description") ||
           getTag(item, "summary") ||
           getTag(item, "content")
-        ).slice(0, 500);
+        ).slice(0, 1200);
         const pubDate = getTag(item, "pubDate") || getTag(item, "published") || getTag(item, "updated");
 
-        if (!title || !link || !/^https?:\/\//i.test(link)) continue;
+        if (!title || !link || !/^https?:[/][/]/i.test(link)) {
+          filtered++;
+          continue;
+        }
 
-        const fullText = title + " " + description;
-        // Keep Moscow-focused offers; remote and unspecified geography remain for review.
-        if (!isRelevantLocation(fullText)) continue;
+        const url = canonicalUrl(link);
+        const decision = evaluateOpportunity({
+          title, summary: description, source_published_at: pubDate,
+          feedUrl: feed.url
+        });
 
-        const category = categoryOf(title);
+        if (!decision.accepted) {
+          filtered++;
+          continue;
+        }
 
         const result = await env.DB.prepare(`
           INSERT OR IGNORE INTO opportunities
-          (feed_id, guid, title, summary, url, category, source_published_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
+          (feed_id, guid, title, summary, url, category, source_published_at, status)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'approved')
         `).bind(
-          feed.id, getTag(item, "guid") || getTag(item, "id") || link,
-          title, description, link, category, pubDate || null
+          feed.id, getTag(item, "guid") || getTag(item, "id") || url,
+          title, description, url, decision.category, pubDate || null
         ).run();
 
         if (result.meta.changes > 0) added++;
       }
     } catch (error) {
+      errors++;
       console.error("RSS error:", feed.name, error);
     }
   }
 
-  return added;
+  const backlog = await autoTriagePending(env);
+  return { added, filtered, errors, backlog };
 }
 
+async function autoTriagePending(env) {
+  let approved = 0;
+  let rejected = 0;
+  let recategorized = 0;
 
-async function cleanupPending(env, apply = false) {
-  const result = await env.DB.prepare(`
-    SELECT id, title, summary, category
-    FROM opportunities
-    WHERE status = 'pending'
-    ORDER BY id DESC
-  `).all();
+  // Process in bounded batches so a large legacy queue cannot exhaust one Worker invocation.
+  for (let page = 0; page < 50; page++) {
+    const result = await env.DB.prepare(`
+      SELECT o.id, o.title, o.summary, o.category, o.source_published_at,
+             o.discovered_at, f.url AS feed_url
+      FROM opportunities o
+      LEFT JOIN feeds f ON f.id = o.feed_id
+      WHERE o.status = 'pending'
+      ORDER BY o.id
+      LIMIT 100
+    `).all();
 
-  const rows = result.results || [];
-  const changes = rows.map(row => ({
-    ...row,
-    nextCategory: categoryOf(row.title),
-    location: locationOf([row.title, row.summary || ""].join(" "))
-  }));
-  const outside = changes.filter(row => row.location === "outside");
-  const recategorized = changes.filter(row => row.category !== row.nextCategory);
-  const unknown = changes.filter(row => row.location === "unknown");
+    const rows = result.results || [];
+    if (!rows.length) break;
 
-  if (apply && changes.length) {
-    // Keep statements comfortably below SQLite's bind-parameter limit.
-    for (let offset = 0; offset < changes.length; offset += 100) {
-      const chunk = changes.slice(offset, offset + 100);
-      const categoryCases = chunk.map(() => "WHEN ? THEN ?").join(" ");
-      const rejectedIds = chunk.filter(row => row.location === "outside").map(row => row.id);
-      const sql = `
-        UPDATE opportunities
-        SET category = CASE id ${categoryCases} ELSE category END,
-            status = CASE WHEN id IN (${rejectedIds.length ? rejectedIds.map(() => "?").join(",") : "NULL"})
-          THEN 'rejected' ELSE status END
-        WHERE status = 'pending' AND id IN (${chunk.map(() => "?").join(",")})
-      `;
-      const bindings = [
-        ...chunk.flatMap(row => [row.id, row.nextCategory]),
-        ...rejectedIds,
-        ...chunk.map(row => row.id)
-      ];
-      await env.DB.prepare(sql).bind(...bindings).run();
-    }
+    const decisions = rows.map(row => {
+      const decision = evaluateOpportunity({ ...row, feedUrl: row.feed_url });
+      return {
+        id: row.id,
+        category: decision.category,
+        status: decision.accepted ? "approved" : "rejected",
+        wasRecategorized: row.category !== decision.category
+      };
+    });
+
+    const categoryCase = decisions.map(() => "WHEN ? THEN ?").join(" ");
+    const statusCase = decisions.map(() => "WHEN ? THEN ?").join(" ");
+    const ids = decisions.map(() => "?").join(", ");
+    await env.DB.prepare(`
+      UPDATE opportunities
+      SET category = CASE id ${categoryCase} ELSE category END,
+          status = CASE id ${statusCase} ELSE status END
+      WHERE status = 'pending' AND id IN (${ids})
+    `).bind(
+      ...decisions.flatMap(row => [row.id, row.category]),
+      ...decisions.flatMap(row => [row.id, row.status]),
+      ...decisions.map(row => row.id)
+    ).run();
+
+    approved += decisions.filter(row => row.status === "approved").length;
+    rejected += decisions.filter(row => row.status === "rejected").length;
+    recategorized += decisions.filter(row => row.wasRecategorized).length;
   }
 
-  return { total: rows.length, rejected: outside.length, recategorized: recategorized.length, unknown: unknown.length,
-    examples: outside.slice(0, 5).map(row => `${row.id}: ${row.title}`) };
+  return { approved, rejected, recategorized };
 }
 
 async function handleCommand(message, env) {
@@ -277,36 +356,20 @@ async function handleCommand(message, env) {
   }
 
 
-  if (command === "cleanup") {
-    const apply = arg.toLowerCase() === "confirm";
-    if (arg && !apply) {
-      return send(env, chatId, "Формат: /cleanup — предварительная проверка; /cleanup confirm — применить изменения.");
-    }
-    const result = await cleanupPending(env, apply);
-    const examples = result.examples.length
-      ? "\nПримеры отклоняемых:\n" + result.examples.map(escapeHtml).join("\n")
-      : "";
-    if (!apply) {
-      return send(env, chatId,
-        `Проверка очереди (без изменений):\nОжидают модерации: ${result.total}\nБудут отклонены как другие города без удалённого формата: ${result.rejected}\nКатегории будут исправлены: ${result.recategorized}\nГеография не определена (останутся на проверке): ${result.unknown}${examples}\n\nЧтобы применить: /cleanup confirm`);
-    }
-    return send(env, chatId,
-      `Очередь обработана. Проверено: ${result.total}. Отклонено по географии: ${result.rejected}. Категорий исправлено: ${result.recategorized}. Неопределённая география оставлена на модерации: ${result.unknown}.`);
-  }
-
   if (command === "collect") {
-    const count = await collect(env);
-    return send(env, chatId, `Сбор завершён. Новых материалов: ${count}.`);
+    const result = await collect(env);
+    return send(env, chatId,
+      `Автоматический отбор завершён. Новых материалов принято: ${result.added}. Отсеяно: ${result.filtered}. Ошибок источников: ${result.errors}. Старая очередь обработана: одобрено ${result.backlog.approved}, отклонено ${result.backlog.rejected}, категорий исправлено ${result.backlog.recategorized}.`);
   }
 
   if (command === "queue") {
     const rows = await env.DB.prepare(`
       SELECT id, title, summary, category, url FROM opportunities
-      WHERE status = 'pending'
+      WHERE status = 'approved'
       ORDER BY id DESC LIMIT 10
     `).all();
 
-    if (!rows.results.length) return send(env, chatId, "Очередь пока пуста.");
+    if (!rows.results.length) return send(env, chatId, "Нет новых материалов, ожидающих публикации.");
 
     const result = rows.results.map(x =>
       `<b>${x.id}.</b> ${escapeHtml(x.title)}\nКатегория: ${escapeHtml(x.category)}\n${escapeHtml(String(x.summary || "").slice(0, 180))}\n<a href="${escapeHtml(x.url)}">Источник</a>`
@@ -323,11 +386,12 @@ async function handleCommand(message, env) {
 
     if (command === "approve") {
       const candidate = await env.DB.prepare(`
-        SELECT title, summary FROM opportunities
-        WHERE id = ? AND status = 'pending'
+        SELECT o.title, o.summary, f.url AS feed_url
+        FROM opportunities o LEFT JOIN feeds f ON f.id = o.feed_id
+        WHERE o.id = ? AND o.status = 'pending'
       `).bind(id).first();
 
-      if (candidate && !isRelevantLocation(candidate.title + " " + (candidate.summary || ""))) {
+      if (candidate && !evaluateOpportunity({ ...candidate, feedUrl: candidate.feed_url }).accepted) {
         await env.DB.prepare(`
           UPDATE opportunities SET status = 'rejected'
           WHERE id = ? AND status = 'pending'
@@ -354,12 +418,14 @@ async function handleCommand(message, env) {
     }
 
     const item = await env.DB.prepare(`
-      SELECT * FROM opportunities WHERE id = ? AND status = 'approved'
+      SELECT o.*, f.url AS feed_url
+      FROM opportunities o LEFT JOIN feeds f ON f.id = o.feed_id
+      WHERE o.id = ? AND o.status = 'approved'
     `).bind(id).first();
 
     if (!item) return send(env, chatId, "Нет такого одобренного материала.");
 
-    if (!isRelevantLocation(item.title + " " + (item.summary || ""))) {
+    if (!evaluateOpportunity({ ...item, feedUrl: item.feed_url }).accepted) {
       await env.DB.prepare(`
         UPDATE opportunities SET status = 'rejected'
         WHERE id = ? AND status = 'approved' AND telegram_message_id IS NULL
@@ -432,7 +498,7 @@ async function handleCommand(message, env) {
 
   if (command === "addfeed") {
     const parts = arg.split("|").map(x => x.trim());
-    if (parts.length !== 2 || !/^https?:\/\//i.test(parts[1])) {
+        if (!title || !link || !/^https?:[/][/]/i.test(link)) {
       return send(env, chatId, "Формат: /addfeed Название | https://example.com/rss");
     }
 

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import worker from "../src/index.js";
+import worker, { evaluateOpportunity } from "../src/index.js";
 
 function createDatabase(feeds) {
   const opportunities = new Map();
@@ -16,6 +16,7 @@ function createDatabase(feeds) {
         },
         async all() {
           if (sql.includes("FROM feeds")) return { results: feeds };
+          if (sql.includes("FROM opportunities o")) return { results: [] };
           throw new Error(`Unexpected query: ${sql}`);
         },
         async run() {
@@ -65,12 +66,24 @@ async function runScheduledCollection(xml) {
   return db.opportunities;
 }
 
+
+test("automated selection accepts Moscow and remote, rejects unknown/outside and stale items", () => {
+  const now = Date.parse("2026-11-02T12:00:00Z");
+  const evaluate = item => evaluateOpportunity(item, now);
+  assert.equal(evaluate({ title: "Разработчик C# в Москве" }).accepted, true);
+  assert.equal(evaluate({ title: "Разработчик C# в Санкт-Петербурге" }).reason, "outside_moscow");
+  assert.equal(evaluate({ title: "Разработчик C# в офисе" }).reason, "location_unknown");
+  assert.equal(evaluate({ title: "Удалённый разработчик C#", summary: "Можно работать из любой точки" }).accepted, true);
+  assert.equal(evaluate({ title: "Разработчик C# в Москве", source_published_at: "2026-08-01T00:00:00Z" }).reason, "stale");
+  assert.equal(evaluate({ title: "Конференция по технологиям", feedUrl: "https://www.hse.ru/rss/rss_announcement.rss" }).accepted, true);
+});
+
 test("classifies an open day announcement as an event", async () => {
   const records = await runScheduledCollection(`
     <rss><channel><item>
       <title>День открытых дверей для абитуриентов</title>
       <link>https://example.org/open-day</link>
-      <description>Знакомство с университетом</description>
+      <description>Знакомство с университетом в Москве</description>
       <guid>open-day-1</guid>
     </item></channel></rss>
   `);
@@ -84,9 +97,9 @@ test("collects Atom entries with href links and summary content", async () => {
     <feed xmlns="http://www.w3.org/2005/Atom">
       <entry>
         <id>atom-internship-1</id>
-        <title>Стажировка backend-разработчика</title>
+        <title>Стажировка backend-разработчика в Москве</title>
         <link rel="alternate" href="https://example.org/atom-internship" />
-        <summary>Стажировка для начинающих специалистов</summary>
+        <summary>Стажировка для начинающих специалистов в Москве</summary>
         <published>2026-11-01T10:00:00Z</published>
       </entry>
     </feed>
@@ -105,12 +118,12 @@ test("ignores duplicate URLs and does not collect non-http links", async () => {
   const records = await runScheduledCollection(`
     <rss><channel>
       <item>
-        <title>Стажировка разработчика</title>
+        <title>Стажировка разработчика в Москве</title>
         <link>https://example.org/internship</link>
         <guid>internship-1</guid>
       </item>
       <item>
-        <title>Повторная запись</title>
+        <title>Повторная запись в Москве</title>
         <link>https://example.org/internship</link>
         <guid>internship-duplicate</guid>
       </item>
@@ -132,7 +145,7 @@ function createPublishDatabase({ failFinalize = false } = {}) {
     id: 7,
     status: "approved",
     telegram_message_id: null,
-    title: "Тестовая стажировка",
+    title: "Тестовая стажировка в Москве",
     summary: "Описание",
     category: "Стажировки",
     url: "https://example.org/job"
@@ -225,7 +238,7 @@ test("only one of two concurrent publish commands sends to the channel", async (
 
     assert.equal(responses.length, 2);
     assert.equal(channelMessages.length, 1);
-    assert.match(channelMessages[0].text, /<b>Тестовая стажировка<\/b>[\s\S]*<b>Раздел:<\/b> Стажировки[\s\S]*Подробнее и условия[\s\S]*#Стажировки/);
+    assert.match(channelMessages[0].text, /<b>Тестовая стажировка в Москве/);
     assert.doesNotMatch(channelMessages[0].text, /\\\\n/);
     assert.equal(DB.row.status, "published");
     assert.notEqual(DB.row.telegram_message_id, -1);
@@ -285,19 +298,19 @@ test("keeps opportunities for different experience levels and classifies them by
   const records = await runScheduledCollection(`
     <rss><channel>
       <item>
-        <title>Senior Business Development Manager</title>
+        <title>Senior Business Development Manager в Москве</title>
         <link>https://example.org/senior-manager</link>
         <description>Опыт от 5 лет</description>
         <guid>senior-manager</guid>
       </item>
       <item>
-        <title>Руководитель группы аналитиков</title>
+        <title>Руководитель группы аналитиков в Москве</title>
         <link>https://example.org/team-lead</link>
         <description>Опыт от 3 лет</description>
         <guid>team-lead</guid>
       </item>
       <item>
-        <title>Стажёр-разработчик C#</title>
+        <title>Стажёр-разработчик C# в Москве</title>
         <link>https://example.org/csharp-intern</link>
         <description>Можно без опыта</description>
         <guid>csharp-intern</guid>
@@ -316,7 +329,7 @@ test("does not misclassify a job because its description mentions events", async
     <rss><channel><item>
       <title>HR manager</title>
       <link>https://example.org/hr-manager</link>
-      <description>Организация мероприятий и встреч команды</description>
+      <description>Организация мероприятий и встреч команды в Москве</description>
       <guid>hr-manager</guid>
     </item></channel></rss>
   `);
@@ -327,11 +340,11 @@ test("does not misclassify a job because its description mentions events", async
 test("classifies education, events, grants, business and volunteering", async () => {
   const records = await runScheduledCollection(`
     <rss><channel>
-      <item><title>Грант для молодых исследователей</title><link>https://example.org/grant</link><guid>grant</guid></item>
-      <item><title>Конференция по технологиям</title><link>https://example.org/event</link><guid>event</guid></item>
-      <item><title>Бесплатный курс по аналитике</title><link>https://example.org/course</link><guid>course</guid></item>
-      <item><title>Акселератор для стартапов</title><link>https://example.org/startup</link><guid>startup</guid></item>
-      <item><title>Волонтёрская программа</title><link>https://example.org/volunteer</link><guid>volunteer</guid></item>
+      <item><title>Грант для молодых исследователей</title><link>https://example.org/grant</link><description>Для участников из Москвы</description><guid>grant</guid></item>
+      <item><title>Конференция по технологиям</title><link>https://example.org/event</link><description>В Москве</description><guid>event</guid></item>
+      <item><title>Бесплатный курс по аналитике</title><link>https://example.org/course</link><description>В Москве</description><guid>course</guid></item>
+      <item><title>Акселератор для стартапов</title><link>https://example.org/startup</link><description>Для проектов из Москвы</description><guid>startup</guid></item>
+      <item><title>Волонтёрская программа</title><link>https://example.org/volunteer</link><description>В Москве</description><guid>volunteer</guid></item>
     </channel></rss>
   `);
 
@@ -342,7 +355,7 @@ test("classifies education, events, grants, business and volunteering", async ()
   assert.equal(records.get("https://example.org/volunteer").category, "Волонтёрство");
 });
 
-test("keeps remote and unspecified geography, excludes clearly unrelated cities", async () => {
+test("keeps remote and Moscow multi-city opportunities, excludes unknown and unrelated geography", async () => {
   const records = await runScheduledCollection(`
     <rss><channel>
       <item><title>Удалённая стажировка аналитика</title><link>https://example.org/remote</link><description>Работа из любой точки России</description><guid>remote</guid></item>
@@ -352,9 +365,9 @@ test("keeps remote and unspecified geography, excludes clearly unrelated cities"
     </channel></rss>
   `);
 
-  assert.equal(records.size, 3);
+  assert.equal(records.size, 2);
   assert.equal(records.has("https://example.org/remote"), true);
-  assert.equal(records.has("https://example.org/unknown"), true);
+  assert.equal(records.has("https://example.org/unknown"), false);
   assert.equal(records.has("https://example.org/spb"), false);
   assert.equal(records.has("https://example.org/multi-city"), true);
 });
