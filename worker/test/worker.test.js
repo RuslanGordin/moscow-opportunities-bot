@@ -145,7 +145,7 @@ function createPublishDatabase({ failFinalize = false } = {}) {
     id: 7,
     status: "approved",
     telegram_message_id: null,
-    title: "Тестовая стажировка",
+    title: "Тестовая стажировка в Москве",
     summary: "Описание",
     category: "Стажировки",
     url: "https://example.org/job"
@@ -355,7 +355,7 @@ test("classifies education, events, grants, business and volunteering", async ()
   assert.equal(records.get("https://example.org/volunteer").category, "Волонтёрство");
 });
 
-test("keeps remote and unspecified geography, excludes clearly unrelated cities", async () => {
+test("keeps remote and Moscow multi-city opportunities, excludes unknown and unrelated geography", async () => {
   const records = await runScheduledCollection(`
     <rss><channel>
       <item><title>Удалённая стажировка аналитика</title><link>https://example.org/remote</link><description>Работа из любой точки России</description><guid>remote</guid></item>
@@ -365,9 +365,9 @@ test("keeps remote and unspecified geography, excludes clearly unrelated cities"
     </channel></rss>
   `);
 
-  assert.equal(records.size, 3);
+  assert.equal(records.size, 2);
   assert.equal(records.has("https://example.org/remote"), true);
-  assert.equal(records.has("https://example.org/unknown"), true);
+  assert.equal(records.has("https://example.org/unknown"), false);
   assert.equal(records.has("https://example.org/spb"), false);
   assert.equal(records.has("https://example.org/multi-city"), true);
 });
