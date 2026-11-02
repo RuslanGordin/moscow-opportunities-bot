@@ -1,0 +1,21 @@
+name = "moscow-opportunities-bot-staging"
+main = "src/index.js"
+compatibility_date = "2026-11-02"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "moscow-opportunities-staging"
+# Replace with the ID of the newly created staging D1 database.
+database_id = "REPLACE_WITH_STAGING_D1_DATABASE_ID"
+
+[vars]
+CHANNEL_ID = "@REPLACE_WITH_STAGING_CHANNEL"
+ADMIN_IDS = "1472131271"
+
+# Configure these as encrypted staging Worker secrets in Cloudflare:
+# BOT_TOKEN
+# WEBHOOK_SECRET
+# SETUP_SECRET
+
+[triggers]
+crons = []
