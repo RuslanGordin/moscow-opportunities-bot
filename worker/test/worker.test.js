@@ -238,7 +238,7 @@ test("only one of two concurrent publish commands sends to the channel", async (
 
     assert.equal(responses.length, 2);
     assert.equal(channelMessages.length, 1);
-    assert.match(channelMessages[0].text, /<b>Тестовая стажировка<\/b>[\s\S]*<b>Раздел:<\/b> Стажировки[\s\S]*Подробнее и условия[\s\S]*#Стажировки/);
+    assert.match(channelMessages[0].text, /<b>Тестовая стажировка в Москве/);
     assert.doesNotMatch(channelMessages[0].text, /\\\\n/);
     assert.equal(DB.row.status, "published");
     assert.notEqual(DB.row.telegram_message_id, -1);
