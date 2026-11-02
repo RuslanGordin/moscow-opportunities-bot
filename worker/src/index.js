@@ -36,19 +36,19 @@ function decodeXml(s = "") {
 
 function getTag(xml, tag) {
   const match = xml.match(new RegExp(
-    `<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, "i"
+    `<${tag}(?:\s[^>]*)?>([\s\\S]*?)<\\/${tag}>`, "i"
   ));
   return match ? decodeXml(match[1]) : "";
 }
 
 function isClearlyExperienced(text) {
   const s = String(text || "").toLowerCase().replace(/[–—]/g, "-");
-  return /\\b(senior|middle|mid-level|lead|team lead|principal|staff engineer)\\b/i.test(s) ||
-    /#(senior|middle|mid|lead)\\b/i.test(s) ||
-    /\\b(ведущий специалист|ведущий инженер|руководитель группы|руководитель команды)\\b/i.test(s) ||
-    /опыт(?:а работы| работы)?\\s*(?:не менее\\s*)?(?:от\\s*)?[2-9]\\d?\\s*(?:\\+\\s*)?(?:лет|года|год)/i.test(s) ||
-    /(?:от|минимум|не менее)\\s*[2-9]\\d?\\s*(?:лет|года|год)\\s*(?:опыта|опыт)/i.test(s) ||
-    /\\b[2-9]\\d?\\+?\\s*years?\\s+(?:of\\s+)?experience\\b/i.test(s);
+  return /\b(senior|middle|mid-level|lead|team lead|principal|staff engineer)\b/i.test(s) ||
+    /#(senior|middle|mid|lead)\b/i.test(s) ||
+    /\b(ведущий специалист|ведущий инженер|руководитель группы|руководитель команды)\b/i.test(s) ||
+    /опыт(?:а работы| работы)?\s*(?:не менее\s*)?(?:от\s*)?[2-9]\d?\s*(?:\+\s*)?(?:лет|года|год)/i.test(s) ||
+    /(?:от|минимум|не менее)\s*[2-9]\d?\s*(?:лет|года|год)\s*(?:опыта|опыт)/i.test(s) ||
+    /\b[2-9]\d?\+?\s*years?\s+(?:of\s+)?experience\b/i.test(s);
 }
 
 function categoryOf(text) {
