@@ -208,3 +208,31 @@ test("only one of two concurrent publish commands sends to the channel", async (
     globalThis.fetch = originalFetch;
   }
 });
+
+test("filters out senior vacancies while keeping student-friendly opportunities", async () => {
+  const records = await runScheduledCollection(`
+    <rss><channel>
+      <item>
+        <title>Функциональный тестировщик / QA инженер #senior</title>
+        <link>https://example.org/senior-qa</link>
+        <description>Требуемые навыки: SOAP, REST, SQL, PostgreSQL</description>
+        <guid>senior-qa</guid>
+      </item>
+      <item>
+        <title>Стажёр-разработчик C#</title>
+        <link>https://example.org/csharp-intern</link>
+        <description>Можно без опыта, обучение на рабочем месте</description>
+        <guid>csharp-intern</guid>
+      </item>
+      <item>
+        <title>Младший аналитик</title>
+        <link>https://example.org/analyst</link>
+        <description>Опыт работы от 3 лет</description>
+        <guid>experienced-analyst</guid>
+      </item>
+    </channel></rss>
+  `);
+
+  assert.equal(records.size, 1);
+  assert.equal([...records.values()][0].title, "Стажёр-разработчик C#");
+});
