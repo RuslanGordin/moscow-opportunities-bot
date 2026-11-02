@@ -228,7 +228,7 @@ async function collect(env) {
         console.error("RSS feed too large:", feed.name);
         continue;
       }
-      const items = xml.match(/<item\b[^>]*>[\\s\\S]*?<\/item>|<entry\b[^>]*>[\\s\\S]*?<\/entry>/gi) || [];
+      const items = xml.match(/<item\b[^>]*>[\d\D]*?<\/item>|<entry\b[^>]*>[\d\D]*?<\/entry>/gi) || [];
 
       for (const item of items) {
         const title = getTag(item, "title");
@@ -240,7 +240,7 @@ async function collect(env) {
         ).slice(0, 1200);
         const pubDate = getTag(item, "pubDate") || getTag(item, "published") || getTag(item, "updated");
 
-        if (!title || !link || !/^https?:\/\//i.test(link)) {
+        if (!title || !link || !/^https?:[/][/]/i.test(link)) {
           filtered++;
           continue;
         }
@@ -492,7 +492,7 @@ async function handleCommand(message, env) {
 
   if (command === "addfeed") {
     const parts = arg.split("|").map(x => x.trim());
-    if (parts.length !== 2 || !/^https?:\/\//i.test(parts[1])) {
+        if (!title || !link || !/^https?:[/][/]/i.test(link)) {
       return send(env, chatId, "Формат: /addfeed Название | https://example.com/rss");
     }
 
