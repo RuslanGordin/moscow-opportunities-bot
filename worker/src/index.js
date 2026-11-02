@@ -248,10 +248,10 @@ async function handleCommand(message, env) {
     }
 
     const post =
-      `<b>${escapeHtml(item.title)}</b>\\n\\n` +
-      `${escapeHtml(item.summary || "")}\\n\\n` +
-      `Категория: ${escapeHtml(item.category)}\\n` +
-      `<a href="${escapeHtml(item.url)}">Подробнее об источнике</a>\\n\\n` +
+      `<b>${escapeHtml(item.title)}</b>\n\n` +
+      `${escapeHtml(item.summary || "")}\n\n` +
+      `Категория: ${escapeHtml(item.category)}\n` +
+      `<a href="${escapeHtml(item.url)}">Подробнее об источнике</a>\n\n` +
       `Источник: ${escapeHtml(item.url)}`;
 
     try {

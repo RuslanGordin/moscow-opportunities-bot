@@ -15,3 +15,6 @@ ADMIN_IDS = "1472131271"
 # BOT_TOKEN
 # WEBHOOK_SECRET
 # SETUP_SECRET
+
+[triggers]
+crons = ["0 * * * *"]
