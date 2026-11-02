@@ -137,7 +137,7 @@ function evaluateOpportunity(item, now = Date.now()) {
 
   const dateValue = item.source_published_at || item.discovered_at || "";
   const publishedAt = dateValue ? Date.parse(dateValue) : NaN;
-  const maxAgeDays = category === "Мероприятия" ? 21
+  const maxAgeDays = category === "Мероприятия" ? 45
     : category === "Гранты и конкурсы" || category === "Образование" ? 60 : 35;
   if (Number.isFinite(publishedAt) && now - publishedAt > maxAgeDays * 86400000) {
     return { accepted: false, reason: "stale", category, location };
