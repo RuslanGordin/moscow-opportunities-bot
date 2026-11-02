@@ -236,16 +236,12 @@ async function cleanupPending(env, apply = false) {
       const sql = `
         UPDATE opportunities
         SET category = CASE id ${categoryCases} ELSE category END,
-            status = CASE WHEN id IN (${chunk.map(() => "?").join(",")})
-              AND status = 'pending'
-              THEN CASE WHEN id IN (${rejectedIds.length ? rejectedIds.map(() => "?").join(",") : "NULL"})
-                THEN 'rejected' ELSE status END
-              ELSE status END
+            status = CASE WHEN id IN (${rejectedIds.length ? rejectedIds.map(() => "?").join(",") : "NULL"})
+          THEN 'rejected' ELSE status END
         WHERE status = 'pending' AND id IN (${chunk.map(() => "?").join(",")})
       `;
       const bindings = [
         ...chunk.flatMap(row => [row.id, row.nextCategory]),
-        ...chunk.map(row => row.id),
         ...rejectedIds,
         ...chunk.map(row => row.id)
       ];
