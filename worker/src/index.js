@@ -10,6 +10,8 @@ const HELP = `
 /feeds — список RSS-источников
 /addfeed Название | URL — добавить источник
 /stats — статистика
+/cleanup — проверить старую очередь
+/cleanup confirm — применить очистку
 `;
 
 function escapeHtml(value = "") {
@@ -85,8 +87,9 @@ function locationOf(text) {
     "челябинск", "пермь", "воронеж", "красноярск", "омск", "тюмень",
     "ярославль", "рыбинск", "тбилиси", "минск", "алматы"
   ];
-  if (outsideMoscow.some(city => s.includes(city))) return "outside";
+  // A role available in Moscow remains relevant even if the employer lists several cities.
   if (/москва|московская область|подмосковье|московской обл/.test(s)) return "moscow";
+  if (outsideMoscow.some(city => s.includes(city))) return "outside";
   return "unknown";
 }
 
@@ -205,6 +208,55 @@ async function collect(env) {
   return added;
 }
 
+
+async function cleanupPending(env, apply = false) {
+  const result = await env.DB.prepare(`
+    SELECT id, title, summary, category
+    FROM opportunities
+    WHERE status = 'pending'
+    ORDER BY id DESC
+  `).all();
+
+  const rows = result.results || [];
+  const changes = rows.map(row => ({
+    ...row,
+    nextCategory: categoryOf(row.title),
+    location: locationOf([row.title, row.summary || ""].join(" "))
+  }));
+  const outside = changes.filter(row => row.location === "outside");
+  const recategorized = changes.filter(row => row.category !== row.nextCategory);
+  const unknown = changes.filter(row => row.location === "unknown");
+
+  if (apply && changes.length) {
+    // Keep statements comfortably below SQLite's bind-parameter limit.
+    for (let offset = 0; offset < changes.length; offset += 100) {
+      const chunk = changes.slice(offset, offset + 100);
+      const categoryCases = chunk.map(() => "WHEN ? THEN ?").join(" ");
+      const rejectedIds = chunk.filter(row => row.location === "outside").map(row => row.id);
+      const sql = `
+        UPDATE opportunities
+        SET category = CASE id ${categoryCases} ELSE category END,
+            status = CASE WHEN id IN (${chunk.map(() => "?").join(",")})
+              AND status = 'pending'
+              THEN CASE WHEN id IN (${rejectedIds.length ? rejectedIds.map(() => "?").join(",") : "NULL"})
+                THEN 'rejected' ELSE status END
+              ELSE status END
+        WHERE status = 'pending' AND id IN (${chunk.map(() => "?").join(",")})
+      `;
+      const bindings = [
+        ...chunk.flatMap(row => [row.id, row.nextCategory]),
+        ...chunk.map(row => row.id),
+        ...rejectedIds,
+        ...chunk.map(row => row.id)
+      ];
+      await env.DB.prepare(sql).bind(...bindings).run();
+    }
+  }
+
+  return { total: rows.length, rejected: outside.length, recategorized: recategorized.length, unknown: unknown.length,
+    examples: outside.slice(0, 5).map(row => `${row.id}: ${row.title}`) };
+}
+
 async function handleCommand(message, env) {
   const chatId = message.chat.id;
   const userId = message.from.id;
@@ -226,6 +278,24 @@ async function handleCommand(message, env) {
 
   if (!isAdmin(env, userId)) {
     return send(env, chatId, "У тебя нет доступа к административным командам.");
+  }
+
+
+  if (command === "cleanup") {
+    const apply = arg.toLowerCase() === "confirm";
+    if (arg && !apply) {
+      return send(env, chatId, "Формат: /cleanup — предварительная проверка; /cleanup confirm — применить изменения.");
+    }
+    const result = await cleanupPending(env, apply);
+    const examples = result.examples.length
+      ? "\\nПримеры отклоняемых:\\n" + result.examples.map(escapeHtml).join("\\n")
+      : "";
+    if (!apply) {
+      return send(env, chatId,
+        `Проверка очереди (без изменений):\\nОжидают модерации: ${result.total}\\nБудут отклонены как другие города без удалённого формата: ${result.rejected}\\nКатегории будут исправлены: ${result.recategorized}\\nГеография не определена (останутся на проверке): ${result.unknown}${examples}\\n\\nЧтобы применить: /cleanup confirm`);
+    }
+    return send(env, chatId,
+      `Очередь обработана. Проверено: ${result.total}. Отклонено по географии: ${result.rejected}. Категорий исправлено: ${result.recategorized}. Неопределённая география оставлена на модерации: ${result.unknown}.`);
   }
 
   if (command === "collect") {
