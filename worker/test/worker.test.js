@@ -281,30 +281,78 @@ test("keeps the publication claim when Telegram accepted a post but D1 finalizat
   }
 });
 
-test("filters out senior vacancies while keeping student-friendly opportunities", async () => {
-  const records = await runScheduledCollection(`
+test("keeps opportunities for different experience levels and classifies them by title", async () => {
+  const records = await runScheduledCollection(\`
     <rss><channel>
       <item>
-        <title>Функциональный тестировщик / QA инженер #senior</title>
-        <link>https://example.org/senior-qa</link>
-        <description>Требуемые навыки: SOAP, REST, SQL, PostgreSQL</description>
-        <guid>senior-qa</guid>
+        <title>Senior Business Development Manager</title>
+        <link>https://example.org/senior-manager</link>
+        <description>Опыт от 5 лет</description>
+        <guid>senior-manager</guid>
+      </item>
+      <item>
+        <title>Руководитель группы аналитиков</title>
+        <link>https://example.org/team-lead</link>
+        <description>Опыт от 3 лет</description>
+        <guid>team-lead</guid>
       </item>
       <item>
         <title>Стажёр-разработчик C#</title>
         <link>https://example.org/csharp-intern</link>
-        <description>Можно без опыта, обучение на рабочем месте</description>
+        <description>Можно без опыта</description>
         <guid>csharp-intern</guid>
       </item>
-      <item>
-        <title>Младший аналитик</title>
-        <link>https://example.org/analyst</link>
-        <description>Опыт работы от 3 лет</description>
-        <guid>experienced-analyst</guid>
-      </item>
     </channel></rss>
-  `);
+  \`);
 
-  assert.equal(records.size, 1);
-  assert.equal([...records.values()][0].title, "Стажёр-разработчик C#");
+  assert.equal(records.size, 3);
+  assert.equal(records.get("https://example.org/senior-manager").category, "Продажи");
+  assert.equal(records.get("https://example.org/team-lead").category, "Работа");
+  assert.equal(records.get("https://example.org/csharp-intern").category, "Стажировки");
+});
+
+test("does not misclassify a job because its description mentions events", async () => {
+  const records = await runScheduledCollection(\`
+    <rss><channel><item>
+      <title>HR manager</title>
+      <link>https://example.org/hr-manager</link>
+      <description>Организация мероприятий и встреч команды</description>
+      <guid>hr-manager</guid>
+    </item></channel></rss>
+  \`);
+
+  assert.equal(records.get("https://example.org/hr-manager").category, "Работа");
+});
+
+test("classifies education, events, grants, business and volunteering", async () => {
+  const records = await runScheduledCollection(\`
+    <rss><channel>
+      <item><title>Грант для молодых исследователей</title><link>https://example.org/grant</link><guid>grant</guid></item>
+      <item><title>Конференция по технологиям</title><link>https://example.org/event</link><guid>event</guid></item>
+      <item><title>Бесплатный курс по аналитике</title><link>https://example.org/course</link><guid>course</guid></item>
+      <item><title>Акселератор для стартапов</title><link>https://example.org/startup</link><guid>startup</guid></item>
+      <item><title>Волонтёрская программа</title><link>https://example.org/volunteer</link><guid>volunteer</guid></item>
+    </channel></rss>
+  \`);
+
+  assert.equal(records.get("https://example.org/grant").category, "Гранты и конкурсы");
+  assert.equal(records.get("https://example.org/event").category, "Мероприятия");
+  assert.equal(records.get("https://example.org/course").category, "Образование");
+  assert.equal(records.get("https://example.org/startup").category, "Бизнес и проекты");
+  assert.equal(records.get("https://example.org/volunteer").category, "Волонтёрство");
+});
+
+test("keeps remote and unspecified geography, excludes clearly unrelated cities", async () => {
+  const records = await runScheduledCollection(\`
+    <rss><channel>
+      <item><title>Удалённая стажировка аналитика</title><link>https://example.org/remote</link><description>Работа из любой точки России</description><guid>remote</guid></item>
+      <item><title>Специалист по документам (Санкт-Петербург)</title><link>https://example.org/spb</link><description>Работа в офисе</description><guid>spb</guid></item>
+      <item><title>Стажировка в сфере кибербезопасности</title><link>https://example.org/unknown</link><description>Место работы уточняется</description><guid>unknown</guid></item>
+    </channel></rss>
+  \`);
+
+  assert.equal(records.size, 2);
+  assert.equal(records.has("https://example.org/remote"), true);
+  assert.equal(records.has("https://example.org/unknown"), true);
+  assert.equal(records.has("https://example.org/spb"), false);
 });
