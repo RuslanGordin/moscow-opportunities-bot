@@ -146,6 +146,8 @@ function evaluateOpportunity(item, now = Date.now()) {
   return { accepted: true, reason: "accepted", category, location };
 }
 
+export { evaluateOpportunity };
+
 function categoryHashtag(category) {
   return ({
     "Работа": "#Работа", "IT": "#IT", "Дизайн": "#Дизайн",
