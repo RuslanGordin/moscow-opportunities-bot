@@ -53,26 +53,76 @@ function getFeedLink(item) {
   return content ? decodeXml(content[1]) : "";
 }
 
-function isClearlyExperienced(text) {
-  const s = String(text || "").toLowerCase().replace(/[–—]/g, "-");
-  return /\b(senior|middle|mid-level|lead|team lead|principal|staff engineer)\b/i.test(s) ||
-    /#(senior|middle|mid|lead)\b/i.test(s) ||
-    /\b(ведущий специалист|ведущий инженер|руководитель группы|руководитель команды)\b/i.test(s) ||
-    /опыт(?:а работы| работы)?\s*(?:не менее\s*)?(?:от\s*)?[2-9]\d?\s*(?:\+\s*)?(?:лет|года|год)/i.test(s) ||
-    /(?:от|минимум|не менее)\s*[2-9]\d?\s*(?:лет|года|год)\s*(?:опыта|опыт)/i.test(s) ||
-    /\b[2-9]\d?\+?\s*years?\s+(?:of\s+)?experience\b/i.test(s);
-}
-
 function categoryOf(text) {
-  const s = text.toLowerCase();
-  if (/стажиров|intern|практик/.test(s)) return "Стажировки";
-  if (/мероприят|конференц|митап|лекци|хакатон|день открытых дверей|дня открытых дверей|дни открытых дверей/.test(s)) return "Мероприятия";
-  if (/дизайн|дизайнер|figma/.test(s)) return "Дизайн";
-  if (/программ|разработчик|developer|python|java|javascript|c#|backend|frontend|devops/.test(s)) return "IT";
-  if (/маркетинг|smm|контент/.test(s)) return "Маркетинг";
-  return "Вакансии";
+  const s = String(text || "").toLowerCase();
+
+  // Use the title as the primary signal; descriptions often mention unrelated topics.
+  if (/грант|стипенди|конкурс|преми|финансировани[ея]|акселератор/.test(s)) return "Гранты и конкурсы";
+  if (/волонт[её]р|добровол|благотвор|социальн(?:ый|ого) проект/.test(s)) return "Волонтёрство";
+  if (/мероприят|конференц|митап|meetup|лекци|вебинар|хакатон|выставк|форум|день открытых дверей|дня открытых дверей|дни открытых дверей/.test(s)) return "Мероприятия";
+  if (/курс(?:ы|а|ов)?|обучени|образовательн|школа программирован|интенсив|повышени[ея] квалификац/.test(s)) return "Образование";
+  if (/стартап|предпринимател|бизнес-иде|бизнес проект|партн[её]рств|ищем соосновател|соосновател/.test(s)) return "Бизнес и проекты";
+  if (/стажиров|intern(ship)?|практик(?:а|и|у|ой)|trainee/.test(s)) return "Стажировки";
+  if (/работа|ваканси|зарплат|оклад|требуется|ищем сотрудник|открыта позици|job\b|в команду/.test(s)) {
+    if (/разработчик|developer|программист|инженер|тестировщик|qa\b|devops|аналитик|кибербезопас|информационн(?:ая|ой) безопасност|backend|frontend|бэкенд|фронтенд|python|java|javascript|c#/.test(s)) return "IT";
+    if (/дизайн|дизайнер|figma|ux|ui\/ux/.test(s)) return "Дизайн";
+    if (/маркетинг|smm|контент|копирайт|seo/.test(s)) return "Маркетинг";
+    if (/продаж|аккаунт|business development|коммерческ/.test(s)) return "Продажи";
+    return "Работа";
+  }
+  if (/дизайн|дизайнер|figma|ux|ui\/ux/.test(s)) return "Дизайн";
+  if (/разработчик|developer|программист|инженер|тестировщик|qa\b|devops|аналитик|кибербезопас|backend|frontend|бэкенд|фронтенд|python|java|javascript|c#/.test(s)) return "IT";
+  if (/маркетинг|smm|контент|копирайт|seo/.test(s)) return "Маркетинг";
+  return "Другое";
 }
 
+function locationOf(text) {
+  const s = String(text || "").toLowerCase();
+  if (/удал[её]нно|remote|работа из любой точки|из любой точки|по всей россии|вся россия|онлайн/.test(s)) return "remote";
+  const outsideMoscow = [
+    "санкт-петербург", "спб", "екатеринбург", "новосибирск", "казань",
+    "нижний новгород", "краснодар", "ростов-на-дону", "самара", "уфа",
+    "челябинск", "пермь", "воронеж", "красноярск", "омск", "тюмень",
+    "ярославль", "рыбинск", "тбилиси", "минск", "алматы"
+  ];
+  if (outsideMoscow.some(city => s.includes(city))) return "outside";
+  if (/москва|московская область|подмосковье|московской обл/.test(s)) return "moscow";
+  return "unknown";
+}
+
+function isRelevantLocation(text) {
+  // Unknown geography stays in the moderation queue; only explicit other-city roles are skipped.
+  return locationOf(text) !== "outside";
+}
+
+function categoryHashtag(category) {
+  return ({
+    "Работа": "#Работа", "IT": "#IT", "Дизайн": "#Дизайн",
+    "Маркетинг": "#Маркетинг", "Продажи": "#Продажи",
+    "Стажировки": "#Стажировки", "Образование": "#Образование",
+    "Мероприятия": "#Мероприятия", "Гранты и конкурсы": "#ГрантыИКонкурсы",
+    "Бизнес и проекты": "#Бизнес", "Волонтёрство": "#Волонтёрство",
+    "Другое": "#Возможности"
+  })[category] || "#Возможности";
+}
+
+function formatOpportunityPost(item) {
+  const category = item.category || "Другое";
+  const location = locationOf([item.title, item.summary].join(" "));
+  const locationLabel = location === "moscow" ? "Москва / Московская область"
+    : location === "remote" ? "Удалённо / онлайн"
+    : location === "unknown" ? "География уточняется" : "";
+  const summary = String(item.summary || "").trim();
+  const parts = [
+    "<b>" + escapeHtml(item.title) + "</b>",
+    summary ? escapeHtml(summary) : "",
+    "<b>Раздел:</b> " + escapeHtml(category),
+    locationLabel ? "<b>География:</b> " + escapeHtml(locationLabel) : "",
+    '<a href="' + escapeHtml(item.url) + '">Подробнее и условия</a>',
+    categoryHashtag(category)
+  ].filter(Boolean);
+  return parts.join("\n\n");
+}
 async function telegram(env, method, body) {
   const response = await fetch(
     `https://api.telegram.org/bot${env.BOT_TOKEN}/${method}`,
@@ -131,10 +181,10 @@ async function collect(env) {
         if (!title || !link || !/^https?:\/\//i.test(link)) continue;
 
         const fullText = title + " " + description;
-        // Keep clearly experienced roles out of a student-focused channel.
-        if (isClearlyExperienced(fullText)) continue;
+        // Keep Moscow-focused offers; remote and unspecified geography remain for review.
+        if (!isRelevantLocation(fullText)) continue;
 
-        const category = categoryOf(fullText);
+        const category = categoryOf(title);
 
         const result = await env.DB.prepare(`
           INSERT OR IGNORE INTO opportunities
@@ -185,7 +235,7 @@ async function handleCommand(message, env) {
 
   if (command === "queue") {
     const rows = await env.DB.prepare(`
-      SELECT id, title, category FROM opportunities
+      SELECT id, title, summary, category, url FROM opportunities
       WHERE status = 'pending'
       ORDER BY id DESC LIMIT 10
     `).all();
@@ -193,7 +243,7 @@ async function handleCommand(message, env) {
     if (!rows.results.length) return send(env, chatId, "Очередь пока пуста.");
 
     const result = rows.results.map(x =>
-      `<b>${x.id}.</b> ${escapeHtml(x.title)}\nКатегория: ${escapeHtml(x.category)}`
+      `<b>${x.id}.</b> ${escapeHtml(x.title)}\nКатегория: ${escapeHtml(x.category)}\n${escapeHtml(String(x.summary || "").slice(0, 180))}\n<a href="${escapeHtml(x.url)}">Источник</a>`
     ).join("\n\n");
 
     return send(env, chatId, result);
@@ -211,12 +261,12 @@ async function handleCommand(message, env) {
         WHERE id = ? AND status = 'pending'
       `).bind(id).first();
 
-      if (candidate && isClearlyExperienced(candidate.title + " " + (candidate.summary || ""))) {
+      if (candidate && !isRelevantLocation(candidate.title + " " + (candidate.summary || ""))) {
         await env.DB.prepare(`
           UPDATE opportunities SET status = 'rejected'
           WHERE id = ? AND status = 'pending'
         `).bind(id).run();
-        return send(env, chatId, `Материал №${id} отклонён: вакансия требует значительного опыта и не подходит для студенческого канала.`);
+        return send(env, chatId, `Материал №${id} отклонён: возможность явно относится к другому городу.`);
       }
     }
 
@@ -243,12 +293,12 @@ async function handleCommand(message, env) {
 
     if (!item) return send(env, chatId, "Нет такого одобренного материала.");
 
-    if (isClearlyExperienced(item.title + " " + (item.summary || ""))) {
+    if (!isRelevantLocation(item.title + " " + (item.summary || ""))) {
       await env.DB.prepare(`
         UPDATE opportunities SET status = 'rejected'
         WHERE id = ? AND status = 'approved' AND telegram_message_id IS NULL
       `).bind(id).run();
-      return send(env, chatId, `Материал №${id} отклонён: вакансия требует значительного опыта и не подходит для студенческого канала.`);
+      return send(env, chatId, `Материал №${id} отклонён: возможность явно относится к другому городу.`);
     }
 
     // Claim atomically before sending so concurrent commands cannot both publish.
@@ -262,12 +312,7 @@ async function handleCommand(message, env) {
       return send(env, chatId, "Материал уже публикуется или был обработан.");
     }
 
-    const post =
-      `<b>${escapeHtml(item.title)}</b>\n\n` +
-      `${escapeHtml(item.summary || "")}\n\n` +
-      `Категория: ${escapeHtml(item.category)}\n` +
-      `<a href="${escapeHtml(item.url)}">Подробнее об источнике</a>\n\n` +
-      `Источник: ${escapeHtml(item.url)}`;
+    const post = formatOpportunityPost(item);
 
     let telegramAcceptedMessage = false;
 
