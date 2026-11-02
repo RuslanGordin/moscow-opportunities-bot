@@ -13,7 +13,7 @@ This directory contains the Worker source supplied by the project owner, plus a 
 
 ## Files
 
-- `src/index.js` — Telegram webhook, RSS collection, moderation commands and scheduled collection.
+- `src/index.js` — Telegram webhook, RSS collection, moderation commands and scheduled collection. Open-day announcements are classified as events; `/publish` uses an atomic D1 claim to prevent concurrent duplicate sends.
 - `schema.sql` — reference D1 schema checked against the existing production application tables and indexes on 2026-11-02. It is not a migration to run against the existing database.
 - `wrangler.toml` — Wrangler configuration referencing the existing D1 database ID.
 
