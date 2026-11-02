@@ -198,28 +198,48 @@ async function handleCommand(message, env) {
 
     if (!item) return send(env, chatId, "Нет такого одобренного материала.");
 
+    // Claim atomically before sending so concurrent commands cannot both publish.
+    const claim = await env.DB.prepare(`
+      UPDATE opportunities
+      SET telegram_message_id = -1
+      WHERE id = ? AND status = 'approved' AND telegram_message_id IS NULL
+    `).bind(id).run();
+
+    if (!claim.meta.changes) {
+      return send(env, chatId, "Материал уже публикуется или был обработан.");
+    }
+
     const post =
-      `<b>${escapeHtml(item.title)}</b>\n\n` +
-      `${escapeHtml(item.summary || "")}\n\n` +
-      `Категория: ${escapeHtml(item.category)}\n` +
-      `<a href="${escapeHtml(item.url)}">Подробнее об источнике</a>\n\n` +
+      `<b>${escapeHtml(item.title)}</b>\\n\\n` +
+      `${escapeHtml(item.summary || "")}\\n\\n` +
+      `Категория: ${escapeHtml(item.category)}\\n` +
+      `<a href="${escapeHtml(item.url)}">Подробнее об источнике</a>\\n\\n` +
       `Источник: ${escapeHtml(item.url)}`;
 
-    const sent = await telegram(env, "sendMessage", {
-      chat_id: env.CHANNEL_ID,
-      text: post,
-      parse_mode: "HTML",
-      disable_web_page_preview: false
-    });
+    try {
+      const sent = await telegram(env, "sendMessage", {
+        chat_id: env.CHANNEL_ID,
+        text: post,
+        parse_mode: "HTML",
+        disable_web_page_preview: false
+      });
 
-    await env.DB.prepare(`
-      UPDATE opportunities
-      SET status = 'published', telegram_message_id = ?,
-          published_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).bind(sent.message_id, id).run();
+      await env.DB.prepare(`
+        UPDATE opportunities
+        SET status = 'published', telegram_message_id = ?,
+            published_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND status = 'approved' AND telegram_message_id = -1
+      `).bind(sent.message_id, id).run();
 
-    return send(env, chatId, `Материал №${id} опубликован.`);
+      return send(env, chatId, `Материал №${id} опубликован.`);
+    } catch (error) {
+      // Release the claim when Telegram rejects the send, allowing a retry.
+      await env.DB.prepare(`
+        UPDATE opportunities SET telegram_message_id = NULL
+        WHERE id = ? AND status = 'approved' AND telegram_message_id = -1
+      `).bind(id).run();
+      throw error;
+    }
   }
 
   if (command === "feeds") {
