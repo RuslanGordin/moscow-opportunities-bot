@@ -348,11 +348,13 @@ test("keeps remote and unspecified geography, excludes clearly unrelated cities"
       <item><title>Удалённая стажировка аналитика</title><link>https://example.org/remote</link><description>Работа из любой точки России</description><guid>remote</guid></item>
       <item><title>Специалист по документам (Санкт-Петербург)</title><link>https://example.org/spb</link><description>Работа в офисе</description><guid>spb</guid></item>
       <item><title>Стажировка в сфере кибербезопасности</title><link>https://example.org/unknown</link><description>Место работы уточняется</description><guid>unknown</guid></item>
+      <item><title>Technical Manager</title><link>https://example.org/multi-city</link><description>Москва, Санкт-Петербург, Новосибирск</description><guid>multi-city</guid></item>
     </channel></rss>
   `);
 
-  assert.equal(records.size, 2);
+  assert.equal(records.size, 3);
   assert.equal(records.has("https://example.org/remote"), true);
   assert.equal(records.has("https://example.org/unknown"), true);
   assert.equal(records.has("https://example.org/spb"), false);
+  assert.equal(records.has("https://example.org/multi-city"), true);
 });
