@@ -15,7 +15,7 @@ This directory contains the Worker source supplied by the project owner, plus a 
 
 - `src/index.js` — Telegram webhook, RSS collection, moderation commands and scheduled collection.
 - `schema.sql` — reference D1 schema; compare it with the live database before any migration.
-- `wrangler.toml` — Wrangler configuration template. The D1 database ID is deliberately a placeholder.
+- `wrangler.toml` — Wrangler configuration referencing the existing D1 database ID supplied from its Cloudflare dashboard URL.
 
 ## Configuration
 
@@ -35,9 +35,8 @@ Never commit bot tokens or other secrets.
 ## Safety before deployment
 
 1. Compare this source with the currently deployed Worker.
-2. Confirm the exact ID and schema of the existing D1 database.
-3. Replace the placeholder database ID only after that verification.
-4. Test against a separate staging Worker and staging database.
-5. Verify webhook configuration and scheduled collection before considering production deployment.
+2. The existing D1 database ID has been filled in; compare the live database schema with `schema.sql` before any migration.
+3. Test against a separate staging Worker and staging database.
+4. Verify webhook configuration and scheduled collection before considering production deployment.
 
 The scheduled handler collects RSS items into the pending queue. Publishing remains a manual admin action using `/approve ID` and `/publish ID`.
