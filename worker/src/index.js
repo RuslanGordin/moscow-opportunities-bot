@@ -62,7 +62,7 @@ function categoryOf(text) {
   if (/курс(?:ы|а|ов)?|обучени|образовательн|школа программирован|интенсив|повышени[ея] квалификац/.test(s)) return "Образование";
   if (/стажиров|стаж[её]р|intern(ship)?|практик(?:а|и|у|ой)|trainee/.test(s)) return "Стажировки";
   if (/работа|ваканси|зарплат|оклад|требуется|ищем сотрудник|открыта позици|job\b|в команду|\bmanager\b|менеджер|специалист|руководитель|директор|\bhr\b/.test(s)) {
-    if (/разработчик|developer|программист|инженер|техническ|тестировщик|qa\b|devops|аналитик|кибербезопас|информационн(?:ая|ой) безопасност|backend|frontend|бэкенд|фронтенд|python|java|javascript|c#/.test(s)) return "IT";
+    if (/разработчик|developer|программист|инженер|техническ|technical|тестировщик|qa\b|devops|аналитик|кибербезопас|информационн(?:ая|ой) безопасност|backend|frontend|бэкенд|фронтенд|python|java|javascript|c#/.test(s)) return "IT";
     if (/дизайн|дизайнер|figma|ux|ui\/ux/.test(s)) return "Дизайн";
     if (/маркетинг|smm|контент|копирайт|seo/.test(s)) return "Маркетинг";
     if (/продаж|аккаунт|business development|коммерческ/.test(s)) return "Продажи";
@@ -228,7 +228,7 @@ async function collect(env) {
         console.error("RSS feed too large:", feed.name);
         continue;
       }
-      const items = xml.match(/<item\\b[^>]*>[\\s\\S]*?<\\/item>|<entry\\b[^>]*>[\\s\\S]*?<\\/entry>/gi) || [];
+      const items = xml.match(/<item\b[^>]*>[\\s\\S]*?<\/item>|<entry\b[^>]*>[\\s\\S]*?<\/entry>/gi) || [];
 
       for (const item of items) {
         const title = getTag(item, "title");
@@ -240,7 +240,7 @@ async function collect(env) {
         ).slice(0, 1200);
         const pubDate = getTag(item, "pubDate") || getTag(item, "published") || getTag(item, "updated");
 
-        if (!title || !link || !/^https?:\\/\\//i.test(link)) {
+        if (!title || !link || !/^https?:\/\//i.test(link)) {
           filtered++;
           continue;
         }
@@ -283,7 +283,7 @@ async function autoTriagePending(env) {
   let recategorized = 0;
 
   // Process in bounded batches so a large legacy queue cannot exhaust one Worker invocation.
-  for (let page = 0; page < 20; page++) {
+  for (let page = 0; page < 50; page++) {
     const result = await env.DB.prepare(`
       SELECT o.id, o.title, o.summary, o.category, o.source_published_at,
              o.discovered_at, f.url AS feed_url
