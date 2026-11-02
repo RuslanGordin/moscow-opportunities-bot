@@ -80,7 +80,7 @@ test("classifies an open day announcement as an event", async () => {
 });
 
 test("collects Atom entries with href links and summary content", async () => {
-  const records = await runScheduledCollection(\`
+  const records = await runScheduledCollection(`
     <feed xmlns="http://www.w3.org/2005/Atom">
       <entry>
         <id>atom-internship-1</id>
@@ -90,7 +90,7 @@ test("collects Atom entries with href links and summary content", async () => {
         <published>2026-11-01T10:00:00Z</published>
       </entry>
     </feed>
-  \`);
+  `);
 
   assert.equal(records.size, 1);
   const item = [...records.values()][0];
