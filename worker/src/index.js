@@ -390,7 +390,7 @@ async function handleCommand(message, env) {
         WHERE id = ? AND status = 'pending'
       `).bind(id).first();
 
-      if (candidate && !isRelevantLocation(candidate.title + " " + (candidate.summary || ""))) {
+      if (candidate && !evaluateOpportunity(candidate).accepted) {
         await env.DB.prepare(`
           UPDATE opportunities SET status = 'rejected'
           WHERE id = ? AND status = 'pending'
@@ -422,7 +422,7 @@ async function handleCommand(message, env) {
 
     if (!item) return send(env, chatId, "Нет такого одобренного материала.");
 
-    if (!isRelevantLocation(item.title + " " + (item.summary || ""))) {
+    if (!evaluateOpportunity(item).accepted) {
       await env.DB.prepare(`
         UPDATE opportunities SET status = 'rejected'
         WHERE id = ? AND status = 'approved' AND telegram_message_id IS NULL
