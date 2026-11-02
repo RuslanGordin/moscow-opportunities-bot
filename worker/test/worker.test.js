@@ -307,7 +307,7 @@ test("keeps opportunities for different experience levels and classifies them by
 
   assert.equal(records.size, 3);
   assert.equal(records.get("https://example.org/senior-manager").category, "Продажи");
-  assert.equal(records.get("https://example.org/team-lead").category, "Работа");
+  assert.equal(records.get("https://example.org/team-lead").category, "IT");
   assert.equal(records.get("https://example.org/csharp-intern").category, "Стажировки");
 });
 
