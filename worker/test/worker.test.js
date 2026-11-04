@@ -336,7 +336,7 @@ test("publication removes generic vacancy boilerplate and keeps the employer nam
     }), {
       DB, BOT_TOKEN: "test-token", CHANNEL_ID: "@test_channel", ADMIN_IDS: "42"
     });
-    assert.match(publishedText, /Компания:<\\/b> МегаФон/);
+    assert.ok(publishedText.includes("Компания:</b> МегаФон"));
     assert.doesNotMatch(publishedText, /ищет хорошего специалиста/);
     assert.match(publishedText, /Удалённо/);
   } finally {
