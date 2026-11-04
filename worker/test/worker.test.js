@@ -140,6 +140,31 @@ test("ignores duplicate URLs and does not collect non-http links", async () => {
 });
 
 
+
+test("classifies technical job families and keeps seniority as metadata, not a rejection rule", () => {
+  const now = Date.parse("2026-11-04T12:00:00Z");
+  const evaluate = title => evaluateOpportunity({
+    title,
+    summary: "Москва, полный рабочий день",
+    source_published_at: "2026-11-03T10:00:00Z"
+  }, now);
+  assert.equal(evaluate("MLOps | DataOps в Москве").category, "IT");
+  assert.equal(evaluate("Product Analyst | Старший продуктовый аналитик в Москве").category, "IT");
+  assert.equal(evaluate("Сетевой инженер в Москве").category, "IT");
+  assert.equal(evaluate("Руководитель направления маркетинга в Москве").category, "Маркетинг");
+  assert.equal(evaluate("Product Analyst | Старший продуктовый аналитик в Москве").accepted, true);
+});
+
+test("requires unrestricted remote wording to override an explicit non-Moscow city", () => {
+  const now = Date.parse("2026-11-04T12:00:00Z");
+  const evaluate = (title, summary) => evaluateOpportunity({
+    title, summary, source_published_at: "2026-11-03T10:00:00Z"
+  }, now);
+  assert.equal(evaluate("Руководитель направления маркетинга (Пермь)", "Можно удалённо").reason, "outside_moscow");
+  assert.equal(evaluate("Руководитель направления маркетинга (Пермь)", "Можно работать из любой точки России").location, "remote");
+  assert.equal(evaluate("Разработчик в Москве и Санкт-Петербурге", "Офис").location, "moscow");
+});
+
 function createPublishDatabase({ failFinalize = false } = {}) {
   const row = {
     id: 7,
