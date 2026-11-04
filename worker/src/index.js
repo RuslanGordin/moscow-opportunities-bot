@@ -55,7 +55,7 @@ function categoryOf(text) {
   const s = String(text || "").toLowerCase().replace(/ё/g, "е");
 
   // Opportunity types take priority over broad job-title words.
-  if (/грант|стипенди|конкурс|преми|финансировани[ея]|субсиди|компенсаци/.test(s)) return "Гранты и конкурсы";
+  if (/грант|стипенди|конкурс|преми|финансировани[ея]|субсиди/.test(s)) return "Гранты и конкурсы";
   if (/волонт[её]р|добровол|благотвор|социальн(?:ый|ого) проект/.test(s)) return "Волонтёрство";
   if (/мероприят|конференц|митап|meetup|встреч|лекци|вебинар|хакатон|выставк|форум|день открытых дверей|дня открытых дверей|дни открытых дверей/.test(s)) return "Мероприятия";
   if (/стажиров|стаж[её]р|intern(ship)?|практик(?:а|и|у|ой)|trainee/.test(s)) return "Стажировки";
@@ -360,13 +360,21 @@ async function autoTriagePending(env) {
       SET category = ?, status = ?
       WHERE id = ? AND status = 'pending'
     `).bind(row.category, row.status, row.id));
+    const applied = [];
     for (let offset = 0; offset < updates.length; offset += 50) {
-      await env.DB.batch(updates.slice(offset, offset + 50));
+      const result = await env.DB.batch(updates.slice(offset, offset + 50));
+      applied.push(...(result || []));
     }
 
-    approved += decisions.filter(row => row.status === "approved").length;
-    rejected += decisions.filter(row => row.status === "rejected").length;
-    recategorized += decisions.filter(row => row.wasRecategorized).length;
+    // Count rows actually changed, not merely selected. This keeps /collect
+    // statistics correct if the hourly Cron and a manual collection overlap.
+    for (let index = 0; index < decisions.length; index++) {
+      if ((applied[index]?.meta?.changes || 0) < 1) continue;
+      const row = decisions[index];
+      if (row.status === "approved") approved++;
+      else rejected++;
+      if (row.wasRecategorized) recategorized++;
+    }
   }
 
   return { approved, rejected, recategorized };
