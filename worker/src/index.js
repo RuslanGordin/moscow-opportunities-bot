@@ -52,28 +52,27 @@ function getFeedLink(item) {
 }
 
 function categoryOf(text) {
-  const s = String(text || "").toLowerCase();
+  const s = String(text || "").toLowerCase().replace(/ё/g, "е");
 
-  // Use the title as the primary signal; descriptions often mention unrelated topics.
-  if (/стартап|предпринимател|бизнес-иде|бизнес проект|партн[её]рств|ищем соосновател|соосновател|акселератор/.test(s)) return "Бизнес и проекты";
-  if (/грант|стипенди|конкурс|преми|финансировани[ея]/.test(s)) return "Гранты и конкурсы";
+  // Opportunity types take priority over broad job-title words.
+  if (/грант|стипенди|конкурс|преми|финансировани[ея]|субсиди|компенсаци/.test(s)) return "Гранты и конкурсы";
   if (/волонт[её]р|добровол|благотвор|социальн(?:ый|ого) проект/.test(s)) return "Волонтёрство";
   if (/мероприят|конференц|митап|meetup|встреч|лекци|вебинар|хакатон|выставк|форум|день открытых дверей|дня открытых дверей|дни открытых дверей/.test(s)) return "Мероприятия";
-  if (/курс(?:ы|а|ов)?|обучени|образовательн|школа программирован|интенсив|повышени[ея] квалификац/.test(s)) return "Образование";
   if (/стажиров|стаж[её]р|intern(ship)?|практик(?:а|и|у|ой)|trainee/.test(s)) return "Стажировки";
-  if (/работа|ваканси|зарплат|оклад|требуется|ищем сотрудник|открыта позици|job\b|в команду|\bmanager\b|менеджер|специалист|руководитель|директор|\bhr\b/.test(s)) {
-    if (/разработчик|developer|программист|инженер|техническ|technical|тестировщик|qa\b|devops|аналитик|кибербезопас|информационн(?:ая|ой) безопасност|backend|frontend|бэкенд|фронтенд|python|java|javascript|c#/.test(s)) return "IT";
-    if (/дизайн|дизайнер|figma|ux|ui\/ux/.test(s)) return "Дизайн";
-    if (/маркетинг|smm|контент|копирайт|seo/.test(s)) return "Маркетинг";
-    if (/продаж|аккаунт|business development|коммерческ/.test(s)) return "Продажи";
-    return "Работа";
-  }
-  if (/дизайн|дизайнер|figma|ux|ui\/ux/.test(s)) return "Дизайн";
-  if (/разработчик|developer|программист|инженер|техническ|тестировщик|qa\b|devops|аналитик|кибербезопас|backend|frontend|бэкенд|фронтенд|python|java|javascript|c#/.test(s)) return "IT";
-  if (/маркетинг|smm|контент|копирайт|seo/.test(s)) return "Маркетинг";
+  if (/бесплатн(?:ая|ый|ое) курс|курс(?:ы|а|ов)?|обучени|образовательн|школа программирован|интенсив|повышени[ея] квалификац|переподготовк/.test(s)) return "Образование";
+  if (/льгот|пособи|выплат|компенсац|социальн(?:ая|ой) поддержк|права потребител|трудов(?:ые|ых) права|жилищн(?:ая|ые) субсиди/.test(s)) return "Права и льготы";
+  if (/стартап|предпринимател|бизнес-иде|бизнес проект|партн[её]рств|ищем соосновател|соосновател|акселератор/.test(s)) return "Бизнес и проекты";
+  if (/городск(?:ой|ая) проект|благоустройств|общественн(?:ое|ый) обсуждени|городская среда|транспортн(?:ая|ый) проект/.test(s)) return "Город";
+
+  // Technical roles are classified before generic "manager"/"specialist" matches.
+  if (/mlops|dataops|devops|sre\b|разработчик|developer|программист|инженер|техническ|technical|тестировщик|qa\b|quality assurance|аналитик|analyst|data scientist|data engineer|product analyst|системн(?:ый|ого) администратор|сетев(?:ой|ого) инженер|кибербезопас|информационн(?:ая|ой) безопасност|backend|frontend|бэкенд|фронтенд|python|java|javascript|c#|sql|dwh|машинн(?:ое|ого) обучени/.test(s)) return "IT";
+  if (/дизайн|дизайнер|figma|ux|ui\/ux|графическ(?:ий|ого) дизайнер/.test(s)) return "Дизайн";
+  if (/маркетинг|smm|контент|копирайт|seo|бренд-менедж/.test(s)) return "Маркетинг";
+  if (/продаж|аккаунт|business development|коммерческ/.test(s)) return "Продажи";
+  if (/работа|ваканси|зарплат|оклад|требуется|ищем сотрудник|открыта позици|job\b|в команду|\bmanager\b|менеджер|специалист|руководитель|директор|\bhr\b|product manager|project manager/.test(s)) return "Работа";
+  if (/технолог|цифровизац|искусственн(?:ый|ого) интеллект|нейросет|робототехник/.test(s)) return "Технологии";
   return "Другое";
 }
-
 const OUTSIDE_CITIES = [
   "санкт-петербург", "петербург", "спб", "екатеринбург", "новосибирск", "казань",
   "нижний новгород", "краснодар", "ростов-на-дону", "самара", "уфа", "челябинск",
@@ -91,12 +90,19 @@ const OUTSIDE_CITIES = [
 
 function locationOf(text) {
   const s = String(text || "").toLowerCase().replace(/ё/g, "е");
-  if (/удал[её]нн|remote|работа из любой точки|из любой точки|по всей россии|вся россия|любой регион|любом городе|независимо от местоположения|онлайн|online/.test(s)) return "remote";
-  if (/москв|moscow|подмосков/.test(s)) return "moscow";
-  if (OUTSIDE_CITIES.some(city => s.includes(city))) return "outside";
+  const moscow = /москв|moscow|подмосков/.test(s);
+  const outside = OUTSIDE_CITIES.some(city => s.includes(city));
+  const unrestrictedRemote = /из любой точки|по всей россии|вся россия|любой регион|в любом городе|без привязки к местоположению|независимо от местоположения|по всей стране|anywhere|worldwide|remote worldwide/.test(s);
+  const remoteSignal = /удал[её]нн|remote|дистанционн|работа из дома|work from home|онлайн|online/.test(s);
+
+  // A Moscow office/branch is a valid local opportunity even if other cities are listed.
+  if (moscow) return "moscow";
+  // A city-specific vacancy is not considered Moscow-eligible merely because it says
+  // "можно удалённо". Only unrestricted remote wording overrides another city.
+  if (outside) return unrestrictedRemote ? "remote" : "outside";
+  if (unrestrictedRemote || remoteSignal) return "remote";
   return "unknown";
 }
-
 function canonicalUrl(value) {
   try {
     const url = new URL(value);
@@ -154,27 +160,64 @@ function categoryHashtag(category) {
     "Работа": "#Работа", "IT": "#IT", "Дизайн": "#Дизайн",
     "Маркетинг": "#Маркетинг", "Продажи": "#Продажи",
     "Стажировки": "#Стажировки", "Образование": "#Образование",
-    "Мероприятия": "#Мероприятия", "Гранты и конкурсы": "#ГрантыИКонкурсы",
+    "Мероприятия": "#События", "Гранты и конкурсы": "#Гранты",
     "Бизнес и проекты": "#Бизнес", "Волонтёрство": "#Волонтёрство",
+    "Права и льготы": "#Права", "Город": "#Город", "Технологии": "#Технологии",
     "Другое": "#Возможности"
   })[category] || "#Возможности";
 }
 
+function detectExperienceLevel(text) {
+  const s = String(text || "").toLowerCase();
+  if (/\\b(?:lead|ведущ(?:ий|его)|руководител[ья]|head of|team lead|директор)\\b/.test(s)) return "Руководящая роль";
+  if (/\\b(?:senior|сеньор|старш(?:ий|его)|principal|staff)\\b/.test(s)) return "Senior";
+  if (/\\b(?:middle|мидл|средн(?:ий|его) уровень)\\b/.test(s)) return "Middle";
+  if (/\\b(?:junior|джуниор|начинающ(?:ий|его)|без опыта|стажер|стажерка|intern|trainee)\\b/.test(s)) return "Начальный уровень";
+  return "";
+}
+
+function extractSalary(text) {
+  const s = String(text || "").replace(/\\s+/g, " ");
+  const match = s.match(/(?:зарплат[аы]?|оклад|доход|оплата труда)?[^.\\n]{0,35}(?:от\\s*)?\\d[\\d\\s]*(?:[.,]\\d+)?\\s*(?:тыс\\.?\\s*)?(?:₽|руб(?:лей|ля|ль)?|р\\.?)(?:\\s*(?:до|—|–|-)\\s*\\d[\\d\\s]*(?:[.,]\\d+)?\\s*(?:тыс\\.?\\s*)?(?:₽|руб(?:лей|ля|ль)?|р\\.?))?/i);
+  return match ? match[0].trim() : "";
+}
+
+function extractWorkFormat(text) {
+  const s = String(text || "").toLowerCase();
+  if (/гибрид|гибридн/.test(s)) return "Гибрид";
+  if (/удал[её]нн|remote|дистанционн/.test(s)) return "Удалённо";
+  if (/офис|на площадке|очно/.test(s)) return "Офис";
+  return "";
+}
+
 function formatOpportunityPost(item) {
-  const category = item.category || "Другое";
-  const location = evaluateOpportunity({ ...item, feedUrl: item.feed_url }).location;
+  const category = item.category || categoryOf(item.title);
+  const sourceText = [item.title, item.summary].filter(Boolean).join(" ");
+  const location = evaluateOpportunity({
+    ...item,
+    feedUrl: item.feed_url
+  }).location;
   const locationLabel = location === "moscow" ? "Москва / Московская область"
-    : location === "remote" ? "Удалённо / онлайн" : "";
-  const summary = String(item.summary || "").trim();
+    : location === "remote" ? "Удалённо (география проверена по описанию)" : "";
+  const level = detectExperienceLevel(sourceText);
+  const salary = extractSalary(sourceText);
+  const workFormat = extractWorkFormat(sourceText);
+  const summary = String(item.summary || "").trim().slice(0, 1800);
+  const facts = [
+    level ? "<b>Уровень:</b> " + escapeHtml(level) : "",
+    salary ? "<b>Оплата:</b> " + escapeHtml(salary) : "",
+    workFormat ? "<b>Формат:</b> " + escapeHtml(workFormat) : ""
+  ].filter(Boolean);
   const parts = [
     "<b>" + escapeHtml(item.title) + "</b>",
     summary ? escapeHtml(summary) : "",
-    "<b>Раздел:</b> " + escapeHtml(category),
+    facts.join("\\n"),
+    "<b>Категория:</b> " + escapeHtml(category),
     locationLabel ? "<b>География:</b> " + escapeHtml(locationLabel) : "",
-    '<a href="' + escapeHtml(item.url) + '">Подробнее и условия</a>',
+    '<a href="' + escapeHtml(item.url) + '">Источник и полные условия</a>',
     categoryHashtag(category)
   ].filter(Boolean);
-  return parts.join("\n\n");
+  return parts.join("\\n\\n").slice(0, 3900);
 }
 async function telegram(env, method, body) {
   const response = await fetch(
@@ -317,7 +360,9 @@ async function autoTriagePending(env) {
       SET category = ?, status = ?
       WHERE id = ? AND status = 'pending'
     `).bind(row.category, row.status, row.id));
-    await env.DB.batch(updates);
+    for (let offset = 0; offset < updates.length; offset += 50) {
+      await env.DB.batch(updates.slice(offset, offset + 50));
+    }
 
     approved += decisions.filter(row => row.status === "approved").length;
     rejected += decisions.filter(row => row.status === "rejected").length;
@@ -493,13 +538,22 @@ async function handleCommand(message, env) {
 
   if (command === "addfeed") {
     const parts = arg.split("|").map(x => x.trim());
-        if (!title || !link || !/^https?:[/][/]/i.test(link)) {
+    if (parts.length !== 2 || !parts[0] || !parts[1]) {
       return send(env, chatId, "Формат: /addfeed Название | https://example.com/rss");
+    }
+    let feedUrl;
+    try {
+      feedUrl = new URL(parts[1]);
+    } catch {
+      return send(env, chatId, "Укажи корректный URL источника.");
+    }
+    if (!["http:", "https:"].includes(feedUrl.protocol)) {
+      return send(env, chatId, "Источник должен использовать HTTP или HTTPS.");
     }
 
     await env.DB.prepare(
       "INSERT OR IGNORE INTO feeds (name, url) VALUES (?, ?)"
-    ).bind(parts[0], parts[1]).run();
+    ).bind(parts[0].slice(0, 120), feedUrl.toString()).run();
 
     return send(env, chatId, "Источник добавлен (если его ещё не было).");
   }
@@ -565,6 +619,8 @@ export default {
   },
 
   async scheduled(controller, env, ctx) {
-    ctx.waitUntil(collect(env));
+    ctx.waitUntil(collect(env).catch(error => {
+      console.error("Scheduled collection failed:", error);
+    }));
   }
 };
