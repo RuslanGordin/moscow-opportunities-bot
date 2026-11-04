@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import worker, { evaluateOpportunity } from "../src/index.js";
+import worker, { evaluateOpportunity, validateOpportunityPage } from "../src/index.js";
 
 function createDatabase(feeds) {
   const opportunities = new Map();
@@ -475,7 +475,7 @@ test("source-page validation holds unreachable pages and rejects closed listings
     globalThis.fetch = async () => new Response("<html><body>Вакансия уже закрыта</body></html>", {
       status: 200, headers: { "content-type": "text/html" }
     });
-    const closed = await (await import("../src/index.js")).validateOpportunityPage("https://example.org/closed");
+    const closed = await validateOpportunityPage("https://example.org/closed");
     assert.equal(closed.closed, true);
     assert.equal(closed.reason, "closed_marker");
 
