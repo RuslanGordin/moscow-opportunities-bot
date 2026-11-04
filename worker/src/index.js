@@ -333,7 +333,7 @@ async function collect(env) {
         console.error("RSS feed too large:", feed.name);
         continue;
       }
-      const items = xml.match(/<item\\b[^>]*>[\\d\\D]*?<\\/item>|<entry\\b[^>]*>[\\d\\D]*?<\\/entry>/gi) || [];
+      const items = xml.match(/<item\b[^>]*>[\d\D]*?<\/item>|<entry\b[^>]*>[\d\D]*?<\/entry>/gi) || [];
 
       for (const item of items) {
         const title = getTag(item, "title");
