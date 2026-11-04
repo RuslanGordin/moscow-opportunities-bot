@@ -57,7 +57,7 @@ function categoryOf(text) {
   // Opportunity types take priority over broad job-title words.
   if (/грант|стипенди|конкурс|преми|финансировани[ея]|субсиди/.test(s)) return "Гранты и конкурсы";
   if (/волонт[её]р|добровол|благотвор|социальн(?:ый|ого) проект/.test(s)) return "Волонтёрство";
-  if (/мероприят|конференц|митап|meetup|встреч|лекци|вебинар|хакатон|выставк|форум|день открытых дверей|дня открытых дверей|дни открытых дверей/.test(s)) return "Мероприятия";
+  if (/мероприят|конференц|митап|meetup|встреч|лекци|вебинар|хакатон|выставк|форум|день открытых дверей|дня открытых дверей|дни открытых дверей|афиш|экскурс|фестивал|ярмарк ваканс|открыта регистрац|открыта запись|регистрац на|набор участник|приглашает на|доступна запись/.test(s)) return "Мероприятия";
   if (/стажиров|стаж[её]р|intern(ship)?|практик(?:а|и|у|ой)|trainee/.test(s)) return "Стажировки";
   if (/бесплатн(?:ая|ый|ое) курс|курс(?:ы|а|ов)?|обучени|образовательн|школа программирован|интенсив|повышени[ея] квалификац|переподготовк/.test(s)) return "Образование";
   if (/льгот|пособи|выплат|компенсац|социальн(?:ая|ой) поддержк|права потребител|трудов(?:ые|ых) права|жилищн(?:ая|ые) субсиди/.test(s)) return "Права и льготы";
@@ -124,7 +124,7 @@ function evaluateOpportunity(item, now = Date.now()) {
 
   // Official HSE announcements are Moscow-oriented unless the item explicitly says otherwise.
   if (location === "unknown" &&
-      /hse\.ru\/rss\/rss_announcement\.rss/i.test(String(item.feedUrl || ""))) {
+      (/hse\.ru\/rss\/rss_announcement\.rss|mos\.ru\/rss(?:$|\?)/i.test(String(item.feedUrl || "")))) {
     location = "moscow";
   }
 
@@ -153,7 +153,7 @@ function evaluateOpportunity(item, now = Date.now()) {
   return { accepted: true, reason: "accepted", category, location };
 }
 
-export { evaluateOpportunity };
+export { evaluateOpportunity, validateOpportunityPage };
 
 function categoryHashtag(category) {
   return ({
@@ -271,6 +271,8 @@ async function collect(env) {
   let added = 0;
   let filtered = 0;
   let errors = 0;
+  const rejectionReasons = {};
+  const countRejected = reason => { rejectionReasons[reason] = (rejectionReasons[reason] || 0) + 1; };
 
   for (const feed of feeds.results || []) {
     try {
@@ -304,6 +306,7 @@ async function collect(env) {
 
         if (!title || !link || !/^https?:[/][/]/i.test(link)) {
           filtered++;
+          countRejected("invalid_item");
           continue;
         }
 
@@ -315,6 +318,7 @@ async function collect(env) {
 
         if (!decision.accepted) {
           filtered++;
+          countRejected(decision.reason);
           continue;
         }
 
@@ -336,7 +340,7 @@ async function collect(env) {
   }
 
   const backlog = await autoTriagePending(env);
-  return { added, filtered, errors, backlog };
+  return { added, filtered, errors, backlog, rejectionReasons };
 }
 
 async function autoTriagePending(env) {
@@ -396,6 +400,104 @@ async function autoTriagePending(env) {
   return { approved, rejected, recategorized };
 }
 
+
+const AUTO_PUBLISH_DAILY_LIMIT = 3;
+const AUTO_PUBLISH_MAX_AGE_HOURS = 36;
+
+async function validateOpportunityPage(url) {
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      redirect: "follow",
+      headers: { "User-Agent": "MoscowOpportunitiesBot/2.1", "Accept": "text/html,application/xhtml+xml" },
+      signal: AbortSignal.timeout(10000)
+    });
+    if (response.status === 404 || response.status === 410) return { ok: false, closed: true, reason: "page_not_found" };
+    if (!response.ok) return { ok: false, closed: false, reason: "source_http_" + response.status };
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType && !/text\/html|application\/xhtml\+xml/i.test(contentType)) return { ok: false, closed: false, reason: "not_html" };
+    const html = await response.text();
+    if (!html || html.length > 1000000) return { ok: false, closed: false, reason: "page_unreadable" };
+    const visibleText = decodeXml(html).toLowerCase().slice(0, 180000);
+    const closedPatterns = [
+      /вакансия\s+(?:уже\s+)?закрыта/,
+      /вакансия\s+(?:больше\s+)?не\s+актуальна/,
+      /вакансия\s+в\s+архиве/,
+      /архивная\s+вакансия/,
+      /работодатель\s+больше\s+не\s+принимает\s+отклики/,
+      /позиция\s+уже\s+закрыта/,
+      /прием\s+заявок\s+завершен/,
+      /приём\s+заявок\s+заверш[её]н/,
+      /регистрация\s+завершена/,
+      /срок\s+подачи\s+заявок\s+ист[её]к/,
+      /мероприятие\s+завершилось/,
+      /событие\s+завершилось/,
+      /job\s+is\s+closed/,
+      /position\s+has\s+been\s+filled/,
+      /no\s+longer\s+accepting\s+applications/,
+      /application\s+deadline\s+has\s+passed/
+    ];
+    if (closedPatterns.some(pattern => pattern.test(visibleText))) return { ok: false, closed: true, reason: "closed_marker" };
+    return { ok: true, closed: false, reason: "page_reachable" };
+  } catch (error) {
+    return { ok: false, closed: false, reason: "source_fetch_failed" };
+  }
+}
+
+async function publishApprovedItem(env, item, notifyChatId = null) {
+  const claim = await env.DB.prepare("UPDATE opportunities SET telegram_message_id = -1 WHERE id = ? AND status = 'approved' AND telegram_message_id IS NULL").bind(item.id).run();
+  if (!claim.meta.changes) return false;
+  const post = formatOpportunityPost(item);
+  let telegramAcceptedMessage = false;
+  try {
+    const sent = await telegram(env, "sendMessage", {
+      chat_id: env.CHANNEL_ID, text: post, parse_mode: "HTML", disable_web_page_preview: false
+    });
+    telegramAcceptedMessage = true;
+    const saved = await env.DB.prepare("UPDATE opportunities SET status = 'published', telegram_message_id = ?, published_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'approved' AND telegram_message_id = -1").bind(sent.message_id, item.id).run();
+    if (!saved.meta.changes) throw new Error("Telegram accepted the post, but D1 did not finalize the publication record.");
+    if (notifyChatId !== null) await send(env, notifyChatId, "Материал №" + item.id + " опубликован.");
+    return true;
+  } catch (error) {
+    if (!telegramAcceptedMessage) {
+      await env.DB.prepare("UPDATE opportunities SET telegram_message_id = NULL WHERE id = ? AND status = 'approved' AND telegram_message_id = -1").bind(item.id).run();
+    } else {
+      console.error("Publication accepted by Telegram but not finalized in D1; manual reconciliation is required:", item.id, error);
+    }
+    throw error;
+  }
+}
+
+async function publishFreshApproved(env) {
+  const daily = await env.DB.prepare("SELECT COUNT(*) AS total FROM opportunities WHERE status = 'published' AND date(published_at) = date('now')").first();
+  if (Number(daily?.total || 0) >= AUTO_PUBLISH_DAILY_LIMIT) return { published: 0, checked: 0, held: 0, rejected: 0, limitReached: true };
+  const candidates = await env.DB.prepare("SELECT o.*, f.url AS feed_url FROM opportunities o LEFT JOIN feeds f ON f.id = o.feed_id WHERE o.status = 'approved' AND o.telegram_message_id IS NULL AND datetime(o.discovered_at) >= datetime('now', ?) ORDER BY o.discovered_at ASC, o.id ASC LIMIT 20").bind("-" + AUTO_PUBLISH_MAX_AGE_HOURS + " hours").all();
+  let checked = 0, held = 0, rejected = 0;
+  for (const item of candidates.results || []) {
+    checked++;
+    const decision = evaluateOpportunity({ ...item, feedUrl: item.feed_url });
+    if (!decision.accepted) {
+      await env.DB.prepare("UPDATE opportunities SET status = 'rejected', category = ? WHERE id = ? AND status = 'approved' AND telegram_message_id IS NULL").bind(decision.category, item.id).run();
+      rejected++;
+      continue;
+    }
+    const page = await validateOpportunityPage(item.url);
+    if (page.closed) {
+      await env.DB.prepare("UPDATE opportunities SET status = 'rejected' WHERE id = ? AND status = 'approved' AND telegram_message_id IS NULL").bind(item.id).run();
+      rejected++;
+      console.log("Auto-publication rejected closed source page:", item.id, page.reason);
+      continue;
+    }
+    if (!page.ok) {
+      held++;
+      console.log("Auto-publication held; source page could not be verified:", item.id, page.reason);
+      continue;
+    }
+    if (await publishApprovedItem(env, item)) return { published: 1, checked, held, rejected, limitReached: false };
+  }
+  return { published: 0, checked, held, rejected, limitReached: false };
+}
+
 async function handleCommand(message, env) {
   const chatId = message.chat.id;
   const userId = message.from.id;
@@ -422,8 +524,10 @@ async function handleCommand(message, env) {
 
   if (command === "collect") {
     const result = await collect(env);
+    const publication = await publishFreshApproved(env);
+    const reasons = Object.entries(result.rejectionReasons || {}).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([reason, count]) => reason + ": " + count).join(", ");
     return send(env, chatId,
-      `Автоматический отбор завершён. Новых материалов принято: ${result.added}. Отсеяно: ${result.filtered}. Ошибок источников: ${result.errors}. Старая очередь обработана: одобрено ${result.backlog.approved}, отклонено ${result.backlog.rejected}, категорий исправлено ${result.backlog.recategorized}.`);
+      `Сбор завершён. Новых материалов принято: ${result.added}. Отсеяно: ${result.filtered}. Ошибок источников: ${result.errors}. Причины отсева: ${reasons || "нет"}. Автоматически опубликовано: ${publication.published}. Проверено страниц: ${publication.checked}; временно отложено: ${publication.held}; закрытых возможностей отклонено: ${publication.rejected}. Старая очередь: одобрено ${result.backlog.approved}, отклонено ${result.backlog.rejected}, категорий исправлено ${result.backlog.recategorized}.`);
   }
 
   if (command === "queue") {
@@ -497,55 +601,7 @@ async function handleCommand(message, env) {
       return send(env, chatId, `Материал №${id} отклонён: возможность явно относится к другому городу.`);
     }
 
-    // Claim atomically before sending so concurrent commands cannot both publish.
-    const claim = await env.DB.prepare(`
-      UPDATE opportunities
-      SET telegram_message_id = -1
-      WHERE id = ? AND status = 'approved' AND telegram_message_id IS NULL
-    `).bind(id).run();
-
-    if (!claim.meta.changes) {
-      return send(env, chatId, "Материал уже публикуется или был обработан.");
-    }
-
-    const post = formatOpportunityPost(item);
-
-    let telegramAcceptedMessage = false;
-
-    try {
-      const sent = await telegram(env, "sendMessage", {
-        chat_id: env.CHANNEL_ID,
-        text: post,
-        parse_mode: "HTML",
-        disable_web_page_preview: false
-      });
-      telegramAcceptedMessage = true;
-
-      const saved = await env.DB.prepare(`
-        UPDATE opportunities
-        SET status = 'published', telegram_message_id = ?,
-            published_at = CURRENT_TIMESTAMP
-        WHERE id = ? AND status = 'approved' AND telegram_message_id = -1
-      `).bind(sent.message_id, id).run();
-
-      if (!saved.meta.changes) {
-        throw new Error("Telegram accepted the post, but D1 did not finalize the publication record.");
-      }
-
-      return send(env, chatId, `Материал №${id} опубликован.`);
-    } catch (error) {
-      if (!telegramAcceptedMessage) {
-        // Telegram did not confirm the send: release the claim for a safe retry.
-        await env.DB.prepare(`
-          UPDATE opportunities SET telegram_message_id = NULL
-          WHERE id = ? AND status = 'approved' AND telegram_message_id = -1
-        `).bind(id).run();
-      } else {
-        // Telegram accepted the post. Keep the claim to prevent a duplicate retry.
-        console.error("Publication accepted by Telegram but not finalized in D1; manual reconciliation is required:", id, error);
-      }
-      throw error;
-    }
+    return publishApprovedItem(env, item, chatId);
   }
 
   if (command === "feeds") {
@@ -587,12 +643,11 @@ async function handleCommand(message, env) {
       SELECT status, COUNT(*) AS total
       FROM opportunities GROUP BY status
     `).all();
+    const stats = (rows.results || []).map(x => `${x.status}: ${x.total}`).join("\n");
+    const categories = await env.DB.prepare("SELECT category, COUNT(*) AS total FROM opportunities WHERE status = 'approved' GROUP BY category ORDER BY total DESC LIMIT 8").all();
+    const categoryText = (categories.results || []).map(x => `${x.category}: ${x.total}`).join("\n");
+    return send(env, chatId, (stats || "Материалов пока нет.") + "\n\nОдобрено по категориям:\n" + (categoryText || "нет"));
 
-    const stats = (rows.results || []).map(x =>
-      `${x.status}: ${x.total}`
-    ).join("\n");
-
-    return send(env, chatId, stats || "Материалов пока нет.");
   }
 
   return send(env, chatId, HELP);
@@ -643,8 +698,14 @@ export default {
   },
 
   async scheduled(controller, env, ctx) {
-    ctx.waitUntil(collect(env).catch(error => {
-      console.error("Scheduled collection failed:", error);
-    }));
+    ctx.waitUntil((async () => {
+      try {
+        const result = await collect(env);
+        const publication = await publishFreshApproved(env);
+        console.log("Scheduled run completed:", { added: result.added, filtered: result.filtered, errors: result.errors, autoPublished: publication.published, held: publication.held });
+      } catch (error) {
+        console.error("Scheduled collection/publication failed:", error);
+      }
+    })());
   }
 };
