@@ -245,10 +245,7 @@ function cleanEditorialSummary(text) {
 function formatOpportunityPost(item) {
   const category = item.category || categoryOf(item.title);
   const sourceText = [item.title, item.summary].filter(Boolean).join(" ");
-  const location = evaluateOpportunity({
-    ...item,
-    feedUrl: item.feed_url
-  }).location;
+  const location = item.ai_location || "unknown";
   const locationLabel = location === "moscow" ? "Москва / Московская область"
     : location === "remote" ? "Удалённо (география проверена по описанию)" : "";
   const level = detectExperienceLevel(sourceText);
@@ -485,6 +482,7 @@ async function publishFreshApproved(env) {
       continue;
     }
     item.category=pageDecision.category;
+    item.ai_location=pageDecision.location;
     if (await publishApprovedItem(env,item)) return {published:1,checked,held,rejected,limitReached:false};
   }
   return { published: 0, checked, held, rejected, limitReached: false };
@@ -519,7 +517,7 @@ async function handleCommand(message, env) {
     const publication = await publishFreshApproved(env);
     const reasons = Object.entries(result.rejectionReasons || {}).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([reason, count]) => reason + ": " + count).join(", ");
     return send(env, chatId,
-      `Сбор завершён. Новых материалов принято: ${result.added}. Отсеяно: ${result.filtered}. Ошибок источников: ${result.errors}. Причины отсева: ${reasons || "нет"}. Автоматически опубликовано: ${publication.published}. Проверено страниц: ${publication.checked}; временно отложено: ${publication.held}; закрытых возможностей отклонено: ${publication.rejected}. Старая очередь: одобрено ${result.backlog.approved}, отклонено ${result.backlog.rejected}, категорий исправлено ${result.backlog.recategorized}.`);
+      `Сбор завершён. Новых материалов принято: ${result.added}. Отсеяно: ${result.filtered}. Ошибок источников: ${result.errors}. Причины отсева: ${reasons || "нет"}. Автоматически опубликовано: ${publication.published}. Проверено страниц: ${publication.checked}; временно отложено: ${publication.held}; закрытых возможностей отклонено: ${publication.rejected}. Старая очередь: ИИ одобрил ${result.backlog.approved}, отклонил ${result.backlog.rejected}, ошибок ИИ ${result.backlog.aiErrors}, категорий исправлено ${result.backlog.recategorized}.`);
   }
 
   if (command === "queue") {
