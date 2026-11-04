@@ -310,19 +310,14 @@ async function autoTriagePending(env) {
       };
     });
 
-    const categoryCase = decisions.map(() => "WHEN ? THEN ?").join(" ");
-    const statusCase = decisions.map(() => "WHEN ? THEN ?").join(" ");
-    const ids = decisions.map(() => "?").join(", ");
-    await env.DB.prepare(`
+    // D1 allows at most 100 bound parameters per statement. Keep each
+    // update to three parameters and execute the page as one D1 batch.
+    const updates = decisions.map(row => env.DB.prepare(`
       UPDATE opportunities
-      SET category = CASE id ${categoryCase} ELSE category END,
-          status = CASE id ${statusCase} ELSE status END
-      WHERE status = 'pending' AND id IN (${ids})
-    `).bind(
-      ...decisions.flatMap(row => [row.id, row.category]),
-      ...decisions.flatMap(row => [row.id, row.status]),
-      ...decisions.map(row => row.id)
-    ).run();
+      SET category = ?, status = ?
+      WHERE id = ? AND status = 'pending'
+    `).bind(row.category, row.status, row.id));
+    await env.DB.batch(updates);
 
     approved += decisions.filter(row => row.status === "approved").length;
     rejected += decisions.filter(row => row.status === "rejected").length;
