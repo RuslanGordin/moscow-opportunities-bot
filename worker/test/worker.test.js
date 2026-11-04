@@ -19,10 +19,15 @@ function createDatabase(feeds) {
           if (sql.includes("FROM opportunities o")) return { results: [] };
           throw new Error(`Unexpected query: ${sql}`);
         },
-        async first() { return { total: 0 }; },
+        async first() {
+          if (sql.includes("SELECT id FROM opportunities WHERE url")) {
+            return opportunities.has(values[0]) ? { id: 1 } : null;
+          }
+          return { total: 0 };
+        },
         async run() {
           if (sql.includes("INSERT OR IGNORE INTO opportunities")) {
-            const [feedId, guid, title, summary, url, category, publishedAt] = values;
+            const [feedId, guid, title, summary, url, category, publishedAt, status] = values;
             if (opportunities.has(url)) return { meta: { changes: 0 } };
             opportunities.set(url, {
               feed_id: feedId,
@@ -31,10 +36,12 @@ function createDatabase(feeds) {
               summary,
               url,
               category,
-              source_published_at: publishedAt
+              source_published_at: publishedAt,
+              status
             });
             return { meta: { changes: 1 } };
           }
+          if (sql.includes("UPDATE feeds SET last_collected_at")) return { meta: { changes: 1 } };
           throw new Error(`Unexpected query: ${sql}`);
         }
       };
