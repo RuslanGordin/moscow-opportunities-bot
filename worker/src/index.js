@@ -396,7 +396,7 @@ async function collect(env) {
       console.error("RSS error:", feed.name, error);
     } finally {
       await env.DB.prepare(
-        "UPDATE feeds SET last_collected_at = CURRENT_TIMESTAMP WHERE id = ?"
+        "UPDATE feeds SET last_collected_at = printf('%020d', CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER) + id) WHERE id = ?"
       ).bind(feed.id).run();
     }
   }
