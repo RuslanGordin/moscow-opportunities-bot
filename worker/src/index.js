@@ -153,7 +153,7 @@ function evaluateOpportunity(item, now = Date.now()) {
   return { accepted: true, reason: "accepted", category, location };
 }
 
-export { evaluateOpportunity };
+export { evaluateOpportunity, validateOpportunityPage };
 
 function categoryHashtag(category) {
   return ({
@@ -396,6 +396,104 @@ async function autoTriagePending(env) {
   return { approved, rejected, recategorized };
 }
 
+
+const AUTO_PUBLISH_DAILY_LIMIT = 3;
+const AUTO_PUBLISH_MAX_AGE_HOURS = 36;
+
+async function validateOpportunityPage(url) {
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      redirect: "follow",
+      headers: { "User-Agent": "MoscowOpportunitiesBot/2.1", "Accept": "text/html,application/xhtml+xml" },
+      signal: AbortSignal.timeout(10000)
+    });
+    if (response.status === 404 || response.status === 410) return { ok: false, closed: true, reason: "page_not_found" };
+    if (!response.ok) return { ok: false, closed: false, reason: "source_http_" + response.status };
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType && !/text\/html|application\/xhtml\+xml/i.test(contentType)) return { ok: false, closed: false, reason: "not_html" };
+    const html = await response.text();
+    if (!html || html.length > 1000000) return { ok: false, closed: false, reason: "page_unreadable" };
+    const visibleText = decodeXml(html).toLowerCase().slice(0, 180000);
+    const closedPatterns = [
+      /вакансия\s+(?:уже\s+)?закрыта/,
+      /вакансия\s+(?:больше\s+)?не\s+актуальна/,
+      /вакансия\s+в\s+архиве/,
+      /архивная\s+вакансия/,
+      /работодатель\s+больше\s+не\s+принимает\s+отклики/,
+      /позиция\s+уже\s+закрыта/,
+      /прием\s+заявок\s+завершен/,
+      /приём\s+заявок\s+заверш[её]н/,
+      /регистрация\s+завершена/,
+      /срок\s+подачи\s+заявок\s+ист[её]к/,
+      /мероприятие\s+завершилось/,
+      /событие\s+завершилось/,
+      /job\s+is\s+closed/,
+      /position\s+has\s+been\s+filled/,
+      /no\s+longer\s+accepting\s+applications/,
+      /application\s+deadline\s+has\s+passed/
+    ];
+    if (closedPatterns.some(pattern => pattern.test(visibleText))) return { ok: false, closed: true, reason: "closed_marker" };
+    return { ok: true, closed: false, reason: "page_reachable" };
+  } catch (error) {
+    return { ok: false, closed: false, reason: "source_fetch_failed" };
+  }
+}
+
+async function publishApprovedItem(env, item, notifyChatId = null) {
+  const claim = await env.DB.prepare("UPDATE opportunities SET telegram_message_id = -1 WHERE id = ? AND status = 'approved' AND telegram_message_id IS NULL").bind(item.id).run();
+  if (!claim.meta.changes) return false;
+  const post = formatOpportunityPost(item);
+  let telegramAcceptedMessage = false;
+  try {
+    const sent = await telegram(env, "sendMessage", {
+      chat_id: env.CHANNEL_ID, text: post, parse_mode: "HTML", disable_web_page_preview: false
+    });
+    telegramAcceptedMessage = true;
+    const saved = await env.DB.prepare("UPDATE opportunities SET status = 'published', telegram_message_id = ?, published_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'approved' AND telegram_message_id = -1").bind(sent.message_id, item.id).run();
+    if (!saved.meta.changes) throw new Error("Telegram accepted the post, but D1 did not finalize the publication record.");
+    if (notifyChatId !== null) await send(env, notifyChatId, "Материал №" + item.id + " опубликован.");
+    return true;
+  } catch (error) {
+    if (!telegramAcceptedMessage) {
+      await env.DB.prepare("UPDATE opportunities SET telegram_message_id = NULL WHERE id = ? AND status = 'approved' AND telegram_message_id = -1").bind(item.id).run();
+    } else {
+      console.error("Publication accepted by Telegram but not finalized in D1; manual reconciliation is required:", item.id, error);
+    }
+    throw error;
+  }
+}
+
+async function publishFreshApproved(env) {
+  const daily = await env.DB.prepare("SELECT COUNT(*) AS total FROM opportunities WHERE status = 'published' AND date(published_at) = date('now')").first();
+  if (Number(daily?.total || 0) >= AUTO_PUBLISH_DAILY_LIMIT) return { published: 0, checked: 0, held: 0, rejected: 0, limitReached: true };
+  const candidates = await env.DB.prepare("SELECT o.*, f.url AS feed_url FROM opportunities o LEFT JOIN feeds f ON f.id = o.feed_id WHERE o.status = 'approved' AND o.telegram_message_id IS NULL AND datetime(o.discovered_at) >= datetime('now', ?) ORDER BY o.discovered_at ASC, o.id ASC LIMIT 20").bind("-" + AUTO_PUBLISH_MAX_AGE_HOURS + " hours").all();
+  let checked = 0, held = 0, rejected = 0;
+  for (const item of candidates.results || []) {
+    checked++;
+    const decision = evaluateOpportunity({ ...item, feedUrl: item.feed_url });
+    if (!decision.accepted) {
+      await env.DB.prepare("UPDATE opportunities SET status = 'rejected', category = ? WHERE id = ? AND status = 'approved' AND telegram_message_id IS NULL").bind(decision.category, item.id).run();
+      rejected++;
+      continue;
+    }
+    const page = await validateOpportunityPage(item.url);
+    if (page.closed) {
+      await env.DB.prepare("UPDATE opportunities SET status = 'rejected' WHERE id = ? AND status = 'approved' AND telegram_message_id IS NULL").bind(item.id).run();
+      rejected++;
+      console.log("Auto-publication rejected closed source page:", item.id, page.reason);
+      continue;
+    }
+    if (!page.ok) {
+      held++;
+      console.log("Auto-publication held; source page could not be verified:", item.id, page.reason);
+      continue;
+    }
+    if (await publishApprovedItem(env, item)) return { published: 1, checked, held, rejected, limitReached: false };
+  }
+  return { published: 0, checked, held, rejected, limitReached: false };
+}
+
 async function handleCommand(message, env) {
   const chatId = message.chat.id;
   const userId = message.from.id;
@@ -497,55 +595,7 @@ async function handleCommand(message, env) {
       return send(env, chatId, `Материал №${id} отклонён: возможность явно относится к другому городу.`);
     }
 
-    // Claim atomically before sending so concurrent commands cannot both publish.
-    const claim = await env.DB.prepare(`
-      UPDATE opportunities
-      SET telegram_message_id = -1
-      WHERE id = ? AND status = 'approved' AND telegram_message_id IS NULL
-    `).bind(id).run();
-
-    if (!claim.meta.changes) {
-      return send(env, chatId, "Материал уже публикуется или был обработан.");
-    }
-
-    const post = formatOpportunityPost(item);
-
-    let telegramAcceptedMessage = false;
-
-    try {
-      const sent = await telegram(env, "sendMessage", {
-        chat_id: env.CHANNEL_ID,
-        text: post,
-        parse_mode: "HTML",
-        disable_web_page_preview: false
-      });
-      telegramAcceptedMessage = true;
-
-      const saved = await env.DB.prepare(`
-        UPDATE opportunities
-        SET status = 'published', telegram_message_id = ?,
-            published_at = CURRENT_TIMESTAMP
-        WHERE id = ? AND status = 'approved' AND telegram_message_id = -1
-      `).bind(sent.message_id, id).run();
-
-      if (!saved.meta.changes) {
-        throw new Error("Telegram accepted the post, but D1 did not finalize the publication record.");
-      }
-
-      return send(env, chatId, `Материал №${id} опубликован.`);
-    } catch (error) {
-      if (!telegramAcceptedMessage) {
-        // Telegram did not confirm the send: release the claim for a safe retry.
-        await env.DB.prepare(`
-          UPDATE opportunities SET telegram_message_id = NULL
-          WHERE id = ? AND status = 'approved' AND telegram_message_id = -1
-        `).bind(id).run();
-      } else {
-        // Telegram accepted the post. Keep the claim to prevent a duplicate retry.
-        console.error("Publication accepted by Telegram but not finalized in D1; manual reconciliation is required:", id, error);
-      }
-      throw error;
-    }
+    return publishApprovedItem(env, item, chatId);
   }
 
   if (command === "feeds") {
