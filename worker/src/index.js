@@ -271,6 +271,8 @@ async function collect(env) {
   let added = 0;
   let filtered = 0;
   let errors = 0;
+  const rejectionReasons = {};
+  const countRejected = reason => { rejectionReasons[reason] = (rejectionReasons[reason] || 0) + 1; };
 
   for (const feed of feeds.results || []) {
     try {
@@ -304,6 +306,7 @@ async function collect(env) {
 
         if (!title || !link || !/^https?:[/][/]/i.test(link)) {
           filtered++;
+          countRejected("invalid_item");
           continue;
         }
 
@@ -315,6 +318,7 @@ async function collect(env) {
 
         if (!decision.accepted) {
           filtered++;
+          countRejected(decision.reason);
           continue;
         }
 
@@ -336,7 +340,7 @@ async function collect(env) {
   }
 
   const backlog = await autoTriagePending(env);
-  return { added, filtered, errors, backlog };
+  return { added, filtered, errors, backlog, rejectionReasons };
 }
 
 async function autoTriagePending(env) {
@@ -520,8 +524,10 @@ async function handleCommand(message, env) {
 
   if (command === "collect") {
     const result = await collect(env);
+    const publication = await publishFreshApproved(env);
+    const reasons = Object.entries(result.rejectionReasons || {}).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([reason, count]) => reason + ": " + count).join(", ");
     return send(env, chatId,
-      `Автоматический отбор завершён. Новых материалов принято: ${result.added}. Отсеяно: ${result.filtered}. Ошибок источников: ${result.errors}. Старая очередь обработана: одобрено ${result.backlog.approved}, отклонено ${result.backlog.rejected}, категорий исправлено ${result.backlog.recategorized}.`);
+      `Сбор завершён. Новых материалов принято: ${result.added}. Отсеяно: ${result.filtered}. Ошибок источников: ${result.errors}. Причины отсева: ${reasons || "нет"}. Автоматически опубликовано: ${publication.published}. Проверено страниц: ${publication.checked}; временно отложено: ${publication.held}; закрытых возможностей отклонено: ${publication.rejected}. Старая очередь: одобрено ${result.backlog.approved}, отклонено ${result.backlog.rejected}, категорий исправлено ${result.backlog.recategorized}.`);
   }
 
   if (command === "queue") {
@@ -637,12 +643,11 @@ async function handleCommand(message, env) {
       SELECT status, COUNT(*) AS total
       FROM opportunities GROUP BY status
     `).all();
+    const stats = (rows.results || []).map(x => `${x.status}: ${x.total}`).join("\n");
+    const categories = await env.DB.prepare("SELECT category, COUNT(*) AS total FROM opportunities WHERE status = 'approved' GROUP BY category ORDER BY total DESC LIMIT 8").all();
+    const categoryText = (categories.results || []).map(x => `${x.category}: ${x.total}`).join("\n");
+    return send(env, chatId, (stats || "Материалов пока нет.") + "\n\nОдобрено по категориям:\n" + (categoryText || "нет"));
 
-    const stats = (rows.results || []).map(x =>
-      `${x.status}: ${x.total}`
-    ).join("\n");
-
-    return send(env, chatId, stats || "Материалов пока нет.");
   }
 
   return send(env, chatId, HELP);
@@ -693,8 +698,14 @@ export default {
   },
 
   async scheduled(controller, env, ctx) {
-    ctx.waitUntil(collect(env).catch(error => {
-      console.error("Scheduled collection failed:", error);
-    }));
+    ctx.waitUntil((async () => {
+      try {
+        const result = await collect(env);
+        const publication = await publishFreshApproved(env);
+        console.log("Scheduled run completed:", { added: result.added, filtered: result.filtered, errors: result.errors, autoPublished: publication.published, held: publication.held });
+      } catch (error) {
+        console.error("Scheduled collection/publication failed:", error);
+      }
+    })());
   }
 };
