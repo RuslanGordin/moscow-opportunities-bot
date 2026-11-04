@@ -315,6 +315,35 @@ test("only one of two concurrent publish commands sends to the channel", async (
 });
 
 
+
+test("publication removes generic vacancy boilerplate and keeps the employer name", async () => {
+  const DB = createPublishDatabase();
+  DB.row.summary = "Компания «МегаФон» ищет хорошего специалиста на вакансию «Тестовая стажировка в Москве». Можно работать удалённо.";
+  const originalFetch = globalThis.fetch;
+  let publishedText = "";
+  globalThis.fetch = async (url, options) => {
+    const payload = JSON.parse(options.body);
+    if (payload.chat_id === "@test_channel") publishedText = payload.text;
+    return Response.json({ ok: true, result: { message_id: 123 } });
+  };
+  try {
+    await worker.fetch(new Request("https://worker.example/telegram", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: {
+        chat: { id: 42 }, from: { id: 42 }, text: "/publish 7"
+      } })
+    }), {
+      DB, BOT_TOKEN: "test-token", CHANNEL_ID: "@test_channel", ADMIN_IDS: "42"
+    });
+    assert.match(publishedText, /Компания:<\\/b> МегаФон/);
+    assert.doesNotMatch(publishedText, /ищет хорошего специалиста/);
+    assert.match(publishedText, /Удалённо/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("keeps the publication claim when Telegram accepted a post but D1 finalization fails", async () => {
   const DB = createPublishDatabase({ failFinalize: true });
   const originalFetch = globalThis.fetch;
