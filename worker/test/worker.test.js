@@ -140,6 +140,73 @@ test("ignores duplicate URLs and does not collect non-http links", async () => {
 });
 
 
+
+test("classifies technical job families and keeps seniority as metadata, not a rejection rule", () => {
+  const now = Date.parse("2026-11-04T12:00:00Z");
+  const evaluate = title => evaluateOpportunity({
+    title,
+    summary: "Москва, полный рабочий день",
+    source_published_at: "2026-11-03T10:00:00Z"
+  }, now);
+  assert.equal(evaluate("MLOps | DataOps в Москве").category, "IT");
+  assert.equal(evaluate("Product Analyst | Старший продуктовый аналитик в Москве").category, "IT");
+  assert.equal(evaluate("Сетевой инженер в Москве").category, "IT");
+  assert.equal(evaluate("Руководитель направления маркетинга в Москве").category, "Маркетинг");
+  assert.equal(evaluate("Product Analyst | Старший продуктовый аналитик в Москве").accepted, true);
+});
+
+test("requires unrestricted remote wording to override an explicit non-Moscow city", () => {
+  const now = Date.parse("2026-11-04T12:00:00Z");
+  const evaluate = (title, summary) => evaluateOpportunity({
+    title, summary, source_published_at: "2026-11-03T10:00:00Z"
+  }, now);
+  assert.equal(evaluate("Руководитель направления маркетинга (Пермь)", "Можно удалённо").reason, "outside_moscow");
+  assert.equal(evaluate("Руководитель направления маркетинга (Пермь)", "Можно работать из любой точки России").location, "remote");
+  assert.equal(evaluate("Разработчик в Москве и Санкт-Петербурге", "Офис").location, "moscow");
+});
+
+
+test("validates and stores an RSS source through /addfeed", async () => {
+  const inserted = [];
+  const DB = {
+    prepare(sql) {
+      let values = [];
+      return {
+        bind(...args) { values = args; return this; },
+        async run() {
+          if (sql.includes("INSERT OR IGNORE INTO feeds")) {
+            inserted.push(values);
+            return { meta: { changes: 1 } };
+          }
+          throw new Error("Unexpected SQL: " + sql);
+        }
+      };
+    }
+  };
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({ ok: true, result: { message_id: 1 } });
+  const makeRequest = text => new Request("https://worker.example/telegram", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message: {
+      chat: { id: 42 }, from: { id: 42 }, text
+    } })
+  });
+  try {
+    await worker.fetch(makeRequest("/addfeed Test feed | https://example.org/rss"), {
+      DB, BOT_TOKEN: "test-token", ADMIN_IDS: "42"
+    });
+    assert.equal(inserted.length, 1);
+    assert.deepEqual(inserted[0], ["Test feed", "https://example.org/rss"]);
+    await worker.fetch(makeRequest("/addfeed Bad feed | javascript:alert(1)"), {
+      DB, BOT_TOKEN: "test-token", ADMIN_IDS: "42"
+    });
+    assert.equal(inserted.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 function createPublishDatabase({ failFinalize = false } = {}) {
   const row = {
     id: 7,
@@ -247,6 +314,35 @@ test("only one of two concurrent publish commands sends to the channel", async (
   }
 });
 
+
+
+test("publication removes generic vacancy boilerplate and keeps the employer name", async () => {
+  const DB = createPublishDatabase();
+  DB.row.summary = "Компания «МегаФон» ищет хорошего специалиста на вакансию «Тестовая стажировка в Москве». Можно работать удалённо.";
+  const originalFetch = globalThis.fetch;
+  let publishedText = "";
+  globalThis.fetch = async (url, options) => {
+    const payload = JSON.parse(options.body);
+    if (payload.chat_id === "@test_channel") publishedText = payload.text;
+    return Response.json({ ok: true, result: { message_id: 123 } });
+  };
+  try {
+    await worker.fetch(new Request("https://worker.example/telegram", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: {
+        chat: { id: 42 }, from: { id: 42 }, text: "/publish 7"
+      } })
+    }), {
+      DB, BOT_TOKEN: "test-token", CHANNEL_ID: "@test_channel", ADMIN_IDS: "42"
+    });
+    assert.ok(publishedText.includes("Компания:</b> МегаФон"));
+    assert.doesNotMatch(publishedText, /ищет хорошего специалиста/);
+    assert.match(publishedText, /Удалённо/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 test("keeps the publication claim when Telegram accepted a post but D1 finalization fails", async () => {
   const DB = createPublishDatabase({ failFinalize: true });

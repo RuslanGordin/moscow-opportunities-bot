@@ -1,62 +1,40 @@
 # Cloudflare Worker
 
-Эта папка содержит исходный код Telegram-бота на Cloudflare Workers.
+Production Worker: `moscow-opportunities-bot`  
+Production D1: `moscow-opportunities-db`  
+D1 binding: `DB`  
+Telegram channel: `@moscow_opportunities`
 
-## Существующие production-ресурсы
+## Files
 
-- Worker: `moscow-opportunities-bot`
-- D1: `moscow-opportunities-db`
-- D1 binding: `DB`
-- Telegram-канал: `@moscow_opportunities`
+- `src/index.js` — webhook, RSS/Atom ingestion, deterministic selection, editorial formatting and publication.
+- `wrangler.toml` — existing Worker, D1 binding, environment variables and hourly Cron.
+- `schema.sql` — reference schema only; do not execute against production.
+- `test/worker.test.js` — automated tests.
 
-Конфигурация ссылается на существующую D1 по её текущему ID. Не создавайте вторую базу или Worker без отдельной технической причины.
+## Selection policy
 
-## Файлы
+- Categories include work, IT, design, marketing, sales, internships, education, events, grants, business/projects, volunteering, rights/benefits, city initiatives and technology.
+- Technical job families (including MLOps/DataOps, product/data analysts, QA and network engineering) are classified as IT before generic manager/specialist rules.
+- Seniority is descriptive metadata, not an exclusion rule.
+- Moscow/Moscow region opportunities are retained.
+- A generic "можно удалённо" label does not override an explicit non-Moscow city. For a city-specific listing to be accepted as remote, the source must indicate unrestricted geography (for example, any region / anywhere in Russia).
+- Unknown geography is rejected, except for the existing HSE announcement feed fallback.
+- Freshness thresholds remain 35 days for jobs/internships, 45 days for events, and 60 days for education/grants.
+- URL tracking parameters are removed and unique URLs are deduplicated.
+- Legacy pending rows are processed in bounded pages; each D1 batch contains at most 50 statements, each with only three bound parameters.
+- Scheduled failures are logged. `/collect` reports source errors and triage totals.
 
-- `src/index.js` — Telegram webhook, RSS-сбор, фильтр вакансий, команды модерации и публикация.
-- `wrangler.toml` — конфигурация Worker, D1 binding, переменные и почасовой Cron Trigger.
-- `schema.sql` — справочная схема существующих таблиц. Не запускать как миграцию на production.
-- `test/worker.test.js` — тесты сбора, фильтрации, форматирования и безопасной публикации.
+## Editorial output
 
-## Настройки Worker
+Post formatting may expose facts present in the RSS title/summary: category, geography, experience level, salary and work format. Missing facts are omitted; the bot must not invent salary, benefits, company details or eligibility.
 
-Зашифрованные Cloudflare Secrets:
+The bot does not currently fetch every original vacancy page to verify that a listing remains open. It cannot guarantee availability from RSS dates alone. Full-page validation / AI enrichment is a separate future capability and must fail closed when evidence is missing.
 
-- `BOT_TOKEN`
-- `WEBHOOK_SECRET`
-- `SETUP_SECRET`
+## Publication safety
 
-Переменные:
-
-- `CHANNEL_ID`
-- `ADMIN_IDS`
-
-Секреты не должны попадать в репозиторий или логи.
-
-## Автоматический отбор
-
-- RSS/Atom-сбор выполняется по расписанию и командой `/collect`.
-- Каждый материал проходит автоматические правила до попадания в очередь публикации.
-- Подходящие материалы сразу получают статус `approved`; ручная сортировка не требуется.
-- Остаются Москва, Московская область, удалённая работа, онлайн- и общероссийские возможности. Если среди городов указана Москва, материал остаётся.
-- Материалы с неизвестной географией, неподходящей категорией, явной привязкой к другому городу или истёкшим сроком актуальности автоматически отклоняются.
-- Для RSS-анонсов НИУ ВШЭ неизвестная география считается московской, если в материале не указан другой город.
-- Срок актуальности: вакансии и стажировки — 35 дней; мероприятия — 45 дней; образование и гранты — 60 дней.
-- Категории определяются по заголовку: работа, IT, дизайн, маркетинг, продажи, стажировки, образование, мероприятия, гранты и конкурсы, бизнес и проекты, волонтёрство.
-- Старая очередь `pending` автоматически обрабатывается пакетами до 5 000 записей за запуск.
-- Дубли URL игнорируются; параметры рекламного отслеживания удаляются при нормализации ссылок.
-- `/queue` показывает только отобранные материалы со статусом `approved`.
-- Автоматический отбор не публикует посты: публикация остаётся отдельной командой `/publish ID`, чтобы исключить случайные отправки.
-- `/collect` показывает статистику принятия, отклонения, ошибок источников и обработки старой очереди.
-
-## Расписание
-
-В `wrangler.toml` настроен Cron Trigger `0 * * * *` — запуск в начале каждого часа. Изменение расписания вступит в силу только после развёртывания соответствующей версии Worker. Наличие обработчика `scheduled` в исходниках само по себе не означает, что Cron уже активен в production.
-
-## Production safety
-
-- Изменения в GitHub не равны deploy.
-- Не запускайте `schema.sql` на существующей production D1.
-- Не меняйте production secrets, webhook или настройки Worker без проверки.
-- Не выполняйте deploy, пока не проверены целевая конфигурация, тесты и текущая версия production Worker.
-- Новая staging-инфраструктура для текущего проекта не требуется.
+- Collection/selection automatically approves suitable records; it does not publish to Telegram.
+- `/publish ID` remains an explicit admin action.
+- Atomic publication claims prevent concurrent duplicate sends.
+- Do not change secrets, webhook, D1 schema, Worker settings or production resources as part of code-only work.
+- Do not execute `schema.sql` on the existing production database.
