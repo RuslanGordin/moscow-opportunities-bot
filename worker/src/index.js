@@ -190,6 +190,20 @@ function extractWorkFormat(text) {
   return "";
 }
 
+function extractCompany(text) {
+  const source = String(text || "");
+  const match = source.match(/Компания\\s+[«"']([^»"']+)[»"']\\s+ищет хорошего специалиста на вакансию/i);
+  return match ? match[1].trim() : "";
+}
+
+function cleanEditorialSummary(text) {
+  return String(text || "")
+    .replace(/Компания\\s+[«"'][^»"']+[»"']\\s+ищет хорошего специалиста на вакансию\\s+[«"'][^»"']+[»"']\\.?/gi, "")
+    .replace(/Требуется\\s+[«"'][^»"']+[»"']\\.?/gi, "")
+    .replace(/\\s+/g, " ")
+    .trim();
+}
+
 function formatOpportunityPost(item) {
   const category = item.category || categoryOf(item.title);
   const sourceText = [item.title, item.summary].filter(Boolean).join(" ");
@@ -202,8 +216,10 @@ function formatOpportunityPost(item) {
   const level = detectExperienceLevel(sourceText);
   const salary = extractSalary(sourceText);
   const workFormat = extractWorkFormat(sourceText);
-  const summary = String(item.summary || "").trim().slice(0, 1800);
+  const company = extractCompany(item.summary);
+  const summary = cleanEditorialSummary(item.summary).slice(0, 1800);
   const facts = [
+    company ? "<b>Компания:</b> " + escapeHtml(company) : "",
     level ? "<b>Уровень:</b> " + escapeHtml(level) : "",
     salary ? "<b>Оплата:</b> " + escapeHtml(salary) : "",
     workFormat ? "<b>Формат:</b> " + escapeHtml(workFormat) : ""
