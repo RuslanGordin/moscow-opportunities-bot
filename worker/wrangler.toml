@@ -6,6 +6,7 @@ compatibility_date = "2026-11-02"
 binding = "DB"
 database_name = "moscow-opportunities-db"
 database_id = "35d6dd73-fb90-448b-bc2d-fe121735f3d9"
+migrations_dir = "migrations"
 
 [vars]
 CHANNEL_ID = "@moscow_opportunities"

@@ -298,18 +298,24 @@ function isAdmin(env, userId) {
   return ids.includes(String(userId));
 }
 
+const MAX_FEEDS_PER_RUN = 4;
+const MAX_NEW_ITEMS_PER_RUN = 6;
+const MAX_PENDING_TRIAGE_PER_RUN = 1;
+
 async function collect(env) {
   const feeds = await env.DB.prepare(
-    "SELECT id, name, url FROM feeds WHERE active = 1"
-  ).all();
+    "SELECT id, name, url FROM feeds WHERE active = 1 ORDER BY COALESCE(last_collected_at, '') ASC, id ASC LIMIT ?"
+  ).bind(MAX_FEEDS_PER_RUN).all();
 
   let added = 0;
   let filtered = 0;
   let errors = 0;
+  let classified = 0;
   const rejectionReasons = {};
   const countRejected = reason => { rejectionReasons[reason] = (rejectionReasons[reason] || 0) + 1; };
 
   for (const feed of feeds.results || []) {
+    if (classified >= MAX_NEW_ITEMS_PER_RUN) break;
     try {
       const response = await fetch(feed.url, {
         headers: { "User-Agent": "MoscowOpportunitiesBot/2.0" },
@@ -346,62 +352,86 @@ async function collect(env) {
         }
 
         const url = canonicalUrl(link);
+        const existing = await env.DB.prepare(
+          "SELECT id FROM opportunities WHERE url = ? LIMIT 1"
+        ).bind(url).first();
+        if (existing) continue;
+
+        if (classified >= MAX_NEW_ITEMS_PER_RUN) break;
+        classified++;
+
         let decision;
         try {
-          decision = await classifyWithAI(env, { title, summary: description, source_published_at: pubDate, feed_url: feed.url, feed_name: feed.name });
+          decision = await classifyWithAI(env, {
+            title, summary: description, source_published_at: pubDate,
+            feed_url: feed.url, feed_name: feed.name
+          });
         } catch (error) {
-          filtered++;
+          errors++;
           countRejected("ai_unavailable");
-          console.error("AI classification failed; item skipped:", feed.name, error);
+          console.error("AI classification failed; item will be retried:", feed.name, error);
           continue;
         }
 
-        if (!decision.accepted) {
-          filtered++;
-          countRejected(decision.reason);
-          continue;
-        }
-
+        const status = decision.accepted ? "approved" : "rejected";
         const result = await env.DB.prepare(`
           INSERT OR IGNORE INTO opportunities
           (feed_id, guid, title, summary, url, category, source_published_at, status)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 'approved')
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `).bind(
           feed.id, getTag(item, "guid") || getTag(item, "id") || url,
-          title, description, url, decision.category, pubDate || null
+          title, description, url, decision.category, pubDate || null, status
         ).run();
 
-        if (result.meta.changes > 0) added++;
+        if (result.meta.changes > 0) {
+          if (decision.accepted) added++;
+          else {
+            filtered++;
+            countRejected(decision.reason);
+          }
+        }
       }
     } catch (error) {
       errors++;
       console.error("RSS error:", feed.name, error);
+    } finally {
+      await env.DB.prepare(
+        "UPDATE feeds SET last_collected_at = printf('%020d', CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER) + id) WHERE id = ?"
+      ).bind(feed.id).run();
     }
   }
 
   const backlog = await autoTriagePending(env);
-  return { added, filtered, errors, backlog, rejectionReasons };
+  return { added, filtered, errors, backlog, rejectionReasons, feedsChecked: (feeds.results || []).length, classified };
 }
 
 async function autoTriagePending(env) {
-  let approved=0, rejected=0, recategorized=0, aiErrors=0;
-  const result=await env.DB.prepare(`
+  let approved = 0, rejected = 0, recategorized = 0, aiErrors = 0;
+  const result = await env.DB.prepare(`
     SELECT o.id,o.title,o.summary,o.category,o.source_published_at,o.discovered_at,
            f.url AS feed_url,f.name AS feed_name
     FROM opportunities o LEFT JOIN feeds f ON f.id=o.feed_id
-    WHERE o.status='pending' ORDER BY o.id LIMIT 20
-  `).all();
-  for(const row of result.results||[]) {
+    WHERE o.status='pending' ORDER BY o.id LIMIT ?
+  `).bind(MAX_PENDING_TRIAGE_PER_RUN).all();
+
+  for (const row of result.results || []) {
     let decision;
-    try { decision=await classifyWithAI(env,{...row,feed_url:row.feed_url,feed_name:row.feed_name}); }
-    catch(error) { aiErrors++; console.error("AI triage failed; row remains pending:",row.id,error); continue; }
-    const status=decision.accepted?"approved":"rejected";
-    const update=await env.DB.prepare("UPDATE opportunities SET category=?,status=? WHERE id=? AND status='pending'").bind(decision.category,status,row.id).run();
-    if((update.meta?.changes||0)<1) continue;
-    if(status==="approved") approved++; else rejected++;
-    if(row.category!==decision.category) recategorized++;
+    try {
+      decision = await classifyWithAI(env, { ...row, feed_url: row.feed_url, feed_name: row.feed_name });
+    } catch (error) {
+      aiErrors++;
+      console.error("AI triage failed; row remains pending:", row.id, error);
+      continue;
+    }
+    const status = decision.accepted ? "approved" : "rejected";
+    const update = await env.DB.prepare(
+      "UPDATE opportunities SET category=?,status=? WHERE id=? AND status='pending'"
+    ).bind(decision.category, status, row.id).run();
+    if ((update.meta?.changes || 0) < 1) continue;
+    if (status === "approved") approved++; else rejected++;
+    if (row.category !== decision.category) recategorized++;
   }
-  return {approved,rejected,recategorized,aiErrors};
+  return { approved, rejected, recategorized, aiErrors };
 }
 
 
@@ -449,7 +479,7 @@ async function publishApprovedItem(env, item, notifyChatId = null) {
 async function publishFreshApproved(env) {
   const daily = await env.DB.prepare("SELECT COUNT(*) AS total FROM opportunities WHERE status = 'published' AND date(published_at) = date('now')").first();
   if (Number(daily?.total || 0) >= AUTO_PUBLISH_DAILY_LIMIT) return { published: 0, checked: 0, held: 0, rejected: 0, limitReached: true };
-  const candidates = await env.DB.prepare("SELECT o.*, f.url AS feed_url FROM opportunities o LEFT JOIN feeds f ON f.id = o.feed_id WHERE o.status = 'approved' AND o.telegram_message_id IS NULL AND datetime(o.discovered_at) >= datetime('now', ?) ORDER BY o.discovered_at ASC, o.id ASC LIMIT 20").bind("-" + AUTO_PUBLISH_MAX_AGE_HOURS + " hours").all();
+  const candidates = await env.DB.prepare("SELECT o.*, f.url AS feed_url FROM opportunities o LEFT JOIN feeds f ON f.id = o.feed_id WHERE o.status = 'approved' AND o.telegram_message_id IS NULL AND datetime(o.discovered_at) >= datetime('now', ?) ORDER BY o.discovered_at ASC, o.id ASC LIMIT 1").bind("-" + AUTO_PUBLISH_MAX_AGE_HOURS + " hours").all();
   let checked = 0, held = 0, rejected = 0;
   for (const item of candidates.results || []) {
     checked++;
@@ -517,7 +547,7 @@ async function handleCommand(message, env) {
     const publication = await publishFreshApproved(env);
     const reasons = Object.entries(result.rejectionReasons || {}).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([reason, count]) => reason + ": " + count).join(", ");
     return send(env, chatId,
-      `Сбор завершён. Новых материалов принято: ${result.added}. Отсеяно: ${result.filtered}. Ошибок источников: ${result.errors}. Причины отсева: ${reasons || "нет"}. Автоматически опубликовано: ${publication.published}. Проверено страниц: ${publication.checked}; временно отложено: ${publication.held}; закрытых возможностей отклонено: ${publication.rejected}. Старая очередь: ИИ одобрил ${result.backlog.approved}, отклонил ${result.backlog.rejected}, ошибок ИИ ${result.backlog.aiErrors}, категорий исправлено ${result.backlog.recategorized}.`);
+      `Сбор завершён. Источников проверено: ${result.feedsChecked}. Новых материалов принято: ${result.added}. ИИ проверил: ${result.classified}. Отсеяно: ${result.filtered}. Ошибок: ${result.errors}. Причины отсева: ${reasons || "нет"}. Автоматически опубликовано: ${publication.published}. Проверено страниц: ${publication.checked}; временно отложено: ${publication.held}; закрытых возможностей отклонено: ${publication.rejected}. Старая очередь: ИИ одобрил ${result.backlog.approved}, отклонил ${result.backlog.rejected}, ошибок ИИ ${result.backlog.aiErrors}.`);
   }
 
   if (command === "queue") {
@@ -619,7 +649,11 @@ export default {
           await handleCommand(update.message, env);
         } catch (error) {
           console.error(error);
-          await send(env, update.message.chat.id, "Произошла ошибка. Попробуй ещё раз.");
+          try {
+            await send(env, update.message.chat.id, "Произошла ошибка. Попробуй ещё раз.");
+          } catch (sendError) {
+            console.error("Failed to send Telegram error notification:", sendError);
+          }
         }
       }
 

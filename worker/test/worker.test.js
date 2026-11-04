@@ -19,10 +19,15 @@ function createDatabase(feeds) {
           if (sql.includes("FROM opportunities o")) return { results: [] };
           throw new Error(`Unexpected query: ${sql}`);
         },
-        async first() { return { total: 0 }; },
+        async first() {
+          if (sql.includes("SELECT id FROM opportunities WHERE url")) {
+            return opportunities.has(values[0]) ? { id: 1 } : null;
+          }
+          return { total: 0 };
+        },
         async run() {
           if (sql.includes("INSERT OR IGNORE INTO opportunities")) {
-            const [feedId, guid, title, summary, url, category, publishedAt] = values;
+            const [feedId, guid, title, summary, url, category, publishedAt, status] = values;
             if (opportunities.has(url)) return { meta: { changes: 0 } };
             opportunities.set(url, {
               feed_id: feedId,
@@ -31,10 +36,12 @@ function createDatabase(feeds) {
               summary,
               url,
               category,
-              source_published_at: publishedAt
+              source_published_at: publishedAt,
+              status
             });
             return { meta: { changes: 1 } };
           }
+          if (sql.includes("UPDATE feeds SET last_collected_at")) return { meta: { changes: 1 } };
           throw new Error(`Unexpected query: ${sql}`);
         }
       };
@@ -355,11 +362,11 @@ test("keeps remote and Moscow multi-city opportunities, excludes unknown and unr
     </channel></rss>
   `);
 
-  assert.equal(records.size, 2);
-  assert.equal(records.has("https://example.org/remote"), true);
-  assert.equal(records.has("https://example.org/unknown"), false);
-  assert.equal(records.has("https://example.org/spb"), false);
-  assert.equal(records.has("https://example.org/multi-city"), true);
+  assert.equal(records.size, 4);
+  assert.equal(records.get("https://example.org/remote").status, "approved");
+  assert.equal(records.get("https://example.org/unknown").status, "rejected");
+  assert.equal(records.get("https://example.org/spb").status, "rejected");
+  assert.equal(records.get("https://example.org/multi-city").status, "approved");
 });
 
 test("source-page validation holds unreachable pages and rejects closed listings", async () => {
@@ -395,4 +402,13 @@ test("Moscow RSS pilot classifies opportunity-like city events and uses Moscow f
   assert.equal(result.accepted, true);
   assert.equal(result.category, "Мероприятия");
   assert.equal(result.location, "moscow");
+});
+
+
+test("limits the number of newly classified RSS entries per Worker invocation", async () => {
+  const items = Array.from({ length: 9 }, (_, index) =>
+    `<item><title>Стажировка backend-разработчика ${index} в Москве</title><link>https://example.org/batch-${index}</link><description>Стажировка для начинающих в Москве</description><guid>batch-${index}</guid></item>`
+  ).join("");
+  const records = await runScheduledCollection(`<rss><channel>${items}</channel></rss>`);
+  assert.equal(records.size, 6);
 });
