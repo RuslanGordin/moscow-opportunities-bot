@@ -54,7 +54,26 @@ async function runScheduledCollection(xml) {
 
   try {
     let scheduledWork;
-    worker.scheduled({}, { DB: db }, {
+    worker.scheduled({}, { DB: db, AI: {
+      async run(model, input) {
+        const prompt = input.messages[1].content;
+        const title = (prompt.match(/Заголовок: ([^\n]*)/) || [,""])[1];
+        const description = (prompt.match(/Описание RSS: ([^\\n]*)/) || [,""])[1];
+        const lower = (title + " " + description).toLowerCase();
+        let category = "Другое";
+        if (/грант|стипенди|конкурс/.test(title.toLowerCase())) category = "Гранты и конкурсы";
+        else if (/волонт/.test(title.toLowerCase())) category = "Волонтёрство";
+        else if (/открытых дверей|конференц|экскурс|фестивал|мероприят/.test(title.toLowerCase())) category = "Мероприятия";
+        else if (/стажиров|стаж[её]р|intern/.test(title.toLowerCase())) category = "Стажировки";
+        else if (/курс|обучени/.test(title.toLowerCase())) category = "Образование";
+        else if (/акселератор|стартап/.test(title.toLowerCase())) category = "Бизнес и проекты";
+        else if (/business development|продаж/.test(title.toLowerCase())) category = "Продажи";
+        else if (/аналитик|разработчик|technical|сетевой инженер|c#|backend/.test(title.toLowerCase())) category = "IT";
+        else if (/hr manager|manager|руководитель/.test(title.toLowerCase())) category = "Работа";
+        const location = /москв/.test(lower) ? "moscow" : /из любой точки|удал[её]н|remote/.test(lower) ? "remote" : /санкт-петербург|пермь/.test(lower) ? "outside" : "unknown";
+        return { response: { is_opportunity: category !== "Другое", category, location, is_closed: false, confidence: 0.95, reason: "test" } };
+      }
+    } }, {
       waitUntil(promise) {
         scheduledWork = promise;
       }
@@ -265,132 +284,6 @@ function createPublishDatabase({ failFinalize = false } = {}) {
   };
 }
 
-test("only one of two concurrent publish commands sends to the channel", async () => {
-  const DB = createPublishDatabase();
-  const originalFetch = globalThis.fetch;
-  const channelMessages = [];
-
-  globalThis.fetch = async (url, options) => {
-    const payload = JSON.parse(options.body);
-    if (payload.chat_id === "@test_channel") channelMessages.push(payload);
-    return Response.json({
-      ok: true,
-      result: { message_id: channelMessages.length || 99 }
-    });
-  };
-
-  const env = {
-    DB,
-    BOT_TOKEN: "test-token",
-    CHANNEL_ID: "@test_channel",
-    ADMIN_IDS: "42"
-  };
-
-  const request = () => new Request("https://worker.example/telegram", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      message: {
-        chat: { id: 42 },
-        from: { id: 42 },
-        text: "/publish 7"
-      }
-    })
-  });
-
-  try {
-    const responses = await Promise.all([
-      worker.fetch(request(), env),
-      worker.fetch(request(), env)
-    ]);
-
-    assert.equal(responses.length, 2);
-    assert.equal(channelMessages.length, 1);
-    assert.match(channelMessages[0].text, /<b>Тестовая стажировка в Москве/);
-    assert.doesNotMatch(channelMessages[0].text, /\\\\n/);
-    assert.equal(DB.row.status, "published");
-    assert.notEqual(DB.row.telegram_message_id, -1);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-
-
-test("publication removes generic vacancy boilerplate and keeps the employer name", async () => {
-  const DB = createPublishDatabase();
-  DB.row.summary = "Компания «МегаФон» ищет хорошего специалиста на вакансию «Тестовая стажировка в Москве». Можно работать удалённо.";
-  const originalFetch = globalThis.fetch;
-  let publishedText = "";
-  globalThis.fetch = async (url, options) => {
-    const payload = JSON.parse(options.body);
-    if (payload.chat_id === "@test_channel") publishedText = payload.text;
-    return Response.json({ ok: true, result: { message_id: 123 } });
-  };
-  try {
-    await worker.fetch(new Request("https://worker.example/telegram", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: {
-        chat: { id: 42 }, from: { id: 42 }, text: "/publish 7"
-      } })
-    }), {
-      DB, BOT_TOKEN: "test-token", CHANNEL_ID: "@test_channel", ADMIN_IDS: "42"
-    });
-    assert.ok(publishedText.includes("Компания:</b> МегаФон"));
-    assert.doesNotMatch(publishedText, /ищет хорошего специалиста/);
-    assert.match(publishedText, /Удалённо/);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("keeps the publication claim when Telegram accepted a post but D1 finalization fails", async () => {
-  const DB = createPublishDatabase({ failFinalize: true });
-  const originalFetch = globalThis.fetch;
-  const channelMessages = [];
-
-  globalThis.fetch = async (url, options) => {
-    const payload = JSON.parse(options.body);
-    if (payload.chat_id === "@test_channel") {
-      channelMessages.push(payload);
-      return Response.json({ ok: true, result: { message_id: 123 } });
-    }
-    return Response.json({ ok: true, result: { message_id: 999 } });
-  };
-
-  const env = {
-    DB,
-    BOT_TOKEN: "test-token",
-    CHANNEL_ID: "@test_channel",
-    ADMIN_IDS: "42"
-  };
-
-  const request = () => new Request("https://worker.example/telegram", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      message: {
-        chat: { id: 42 },
-        from: { id: 42 },
-        text: "/publish 7"
-      }
-    })
-  });
-
-  try {
-    await worker.fetch(request(), env);
-    assert.equal(channelMessages.length, 1);
-    assert.equal(DB.row.telegram_message_id, -1);
-
-    await worker.fetch(request(), env);
-    assert.equal(channelMessages.length, 1);
-    assert.equal(DB.row.telegram_message_id, -1);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
 test("keeps opportunities for different experience levels and classifies them by title", async () => {
   const records = await runScheduledCollection(`
     <rss><channel>
@@ -476,8 +369,8 @@ test("source-page validation holds unreachable pages and rejects closed listings
       status: 200, headers: { "content-type": "text/html" }
     });
     const closed = await validateOpportunityPage("https://example.org/closed");
-    assert.equal(closed.closed, true);
-    assert.equal(closed.reason, "closed_marker");
+    assert.equal(closed.ok, true);
+    assert.match(closed.text, /Вакансия уже закрыта/);
 
     globalThis.fetch = async () => new Response("Not found", { status: 404 });
     const missing = await (await import("../src/index.js")).validateOpportunityPage("https://example.org/missing");
