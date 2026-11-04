@@ -18,3 +18,6 @@ ADMIN_IDS = "1472131271"
 
 [triggers]
 crons = ["0 * * * *"]
+
+[ai]
+binding = "AI"
