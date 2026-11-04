@@ -169,16 +169,16 @@ function categoryHashtag(category) {
 
 function detectExperienceLevel(text) {
   const s = String(text || "").toLowerCase();
-  if (/\\b(?:lead|ведущ(?:ий|его)|руководител[ья]|head of|team lead|директор)\\b/.test(s)) return "Руководящая роль";
-  if (/\\b(?:senior|сеньор|старш(?:ий|его)|principal|staff)\\b/.test(s)) return "Senior";
-  if (/\\b(?:middle|мидл|средн(?:ий|его) уровень)\\b/.test(s)) return "Middle";
-  if (/\\b(?:junior|джуниор|начинающ(?:ий|его)|без опыта|стажер|стажерка|intern|trainee)\\b/.test(s)) return "Начальный уровень";
+  if (/\b(?:lead|ведущ(?:ий|его)|руководител[ья]|head of|team lead|директор)\b/.test(s)) return "Руководящая роль";
+  if (/\b(?:senior|сеньор|старш(?:ий|его)|principal|staff)\b/.test(s)) return "Senior";
+  if (/\b(?:middle|мидл|средн(?:ий|его) уровень)\b/.test(s)) return "Middle";
+  if (/\b(?:junior|джуниор|начинающ(?:ий|его)|без опыта|стажер|стажерка|intern|trainee)\b/.test(s)) return "Начальный уровень";
   return "";
 }
 
 function extractSalary(text) {
-  const s = String(text || "").replace(/\\s+/g, " ");
-  const match = s.match(/(?:зарплат[аы]?|оклад|доход|оплата труда)?[^.\\n]{0,35}(?:от\\s*)?\\d[\\d\\s]*(?:[.,]\\d+)?\\s*(?:тыс\\.?\\s*)?(?:₽|руб(?:лей|ля|ль)?|р\\.?)(?:\\s*(?:до|—|–|-)\\s*\\d[\\d\\s]*(?:[.,]\\d+)?\\s*(?:тыс\\.?\\s*)?(?:₽|руб(?:лей|ля|ль)?|р\\.?))?/i);
+  const s = String(text || "").replace(/\s+/g, " ");
+  const match = s.match(/(?:зарплат[аы]?|оклад|доход|оплата труда)?[^.\n]{0,35}(?:от\s*)?\d[\d\s]*(?:[.,]\d+)?\s*(?:тыс\.?\s*)?(?:₽|руб(?:лей|ля|ль)?|р\.?)(?:\s*(?:до|—|–|-)\s*\d[\d\s]*(?:[.,]\d+)?\s*(?:тыс\.?\s*)?(?:₽|руб(?:лей|ля|ль)?|р\.?))?/i);
   return match ? match[0].trim() : "";
 }
 
@@ -211,13 +211,13 @@ function formatOpportunityPost(item) {
   const parts = [
     "<b>" + escapeHtml(item.title) + "</b>",
     summary ? escapeHtml(summary) : "",
-    facts.join("\\n"),
+    facts.join("\n"),
     "<b>Категория:</b> " + escapeHtml(category),
     locationLabel ? "<b>География:</b> " + escapeHtml(locationLabel) : "",
     '<a href="' + escapeHtml(item.url) + '">Источник и полные условия</a>',
     categoryHashtag(category)
   ].filter(Boolean);
-  return parts.join("\\n\\n").slice(0, 3900);
+  return parts.join("\n\n").slice(0, 3900);
 }
 async function telegram(env, method, body) {
   const response = await fetch(
