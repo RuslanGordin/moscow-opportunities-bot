@@ -38,3 +38,13 @@ The bot does not currently fetch every original vacancy page to verify that a li
 - Atomic publication claims prevent concurrent duplicate sends.
 - Do not change secrets, webhook, D1 schema, Worker settings or production resources as part of code-only work.
 - Do not execute `schema.sql` on the existing production database.
+
+## Automatic publication (safe mode)
+
+- A scheduled collection may publish at most one new item per run and no more than three items per UTC day.
+- Only items discovered within the last 36 hours are eligible. The existing approved backlog is deliberately excluded from automatic publication.
+- Before automatic publication, the Worker fetches the original page. HTTP 404/410 and explicit closed/expired markers are rejected. Temporary errors, access blocks, non-HTML responses and unreadable pages are held in the approved queue and are not published.
+- A reachable page is not proof that every detail is current; the post always links to the original source. The page check is a conservative freshness signal, not a guarantee.
+- /collect reports the main rejection reasons. /stats also shows the approved queue by category.
+- The existing manual /publish ID remains available. Auto-publication never drains old approved records.
+- Optional high-volume Moscow source pilot: /addfeed Официальный портал Москвы | https://www.mos.ru/rss. Review the first collection's rejection statistics before relying on it.
