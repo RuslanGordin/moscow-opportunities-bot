@@ -19,6 +19,7 @@ function createDatabase(feeds) {
           if (sql.includes("FROM opportunities o")) return { results: [] };
           throw new Error(`Unexpected query: ${sql}`);
         },
+        async first() { return { total: 0 }; },
         async run() {
           if (sql.includes("INSERT OR IGNORE INTO opportunities")) {
             const [feedId, guid, title, summary, url, category, publishedAt] = values;
@@ -466,4 +467,39 @@ test("keeps remote and Moscow multi-city opportunities, excludes unknown and unr
   assert.equal(records.has("https://example.org/unknown"), false);
   assert.equal(records.has("https://example.org/spb"), false);
   assert.equal(records.has("https://example.org/multi-city"), true);
+});
+
+test("source-page validation holds unreachable pages and rejects closed listings", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => new Response("<html><body>Вакансия уже закрыта</body></html>", {
+      status: 200, headers: { "content-type": "text/html" }
+    });
+    const closed = await (await import("../src/index.js")).validateOpportunityPage("https://example.org/closed");
+    assert.equal(closed.closed, true);
+    assert.equal(closed.reason, "closed_marker");
+
+    globalThis.fetch = async () => new Response("Not found", { status: 404 });
+    const missing = await (await import("../src/index.js")).validateOpportunityPage("https://example.org/missing");
+    assert.equal(missing.closed, true);
+    assert.equal(missing.reason, "page_not_found");
+
+    globalThis.fetch = async () => new Response("Forbidden", { status: 403 });
+    const blocked = await (await import("../src/index.js")).validateOpportunityPage("https://example.org/blocked");
+    assert.equal(blocked.ok, false);
+    assert.equal(blocked.closed, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Moscow RSS pilot classifies opportunity-like city events and uses Moscow feed geography", () => {
+  const result = evaluateOpportunity({
+    title: "Бесплатные экскурсии по Москве: открыта регистрация",
+    feedUrl: "https://www.mos.ru/rss",
+    source_published_at: "2026-11-04T10:00:00Z"
+  }, Date.parse("2026-11-04T12:00:00Z"));
+  assert.equal(result.accepted, true);
+  assert.equal(result.category, "Мероприятия");
+  assert.equal(result.location, "moscow");
 });
