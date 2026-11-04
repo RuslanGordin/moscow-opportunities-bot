@@ -58,7 +58,8 @@ async function runScheduledCollection(xml) {
       async run(model, input) {
         const prompt = input.messages[1].content;
         const title = (prompt.match(/Заголовок: ([^\n]*)/) || [,""])[1];
-        const lower = (title + " " + prompt).toLowerCase();
+        const description = (prompt.match(/Описание RSS: ([^\\n]*)/) || [,""])[1];
+        const lower = (title + " " + description).toLowerCase();
         let category = "Другое";
         if (/грант|стипенди|конкурс/.test(title.toLowerCase())) category = "Гранты и конкурсы";
         else if (/волонт/.test(title.toLowerCase())) category = "Волонтёрство";
