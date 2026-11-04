@@ -165,6 +165,48 @@ test("requires unrestricted remote wording to override an explicit non-Moscow ci
   assert.equal(evaluate("Разработчик в Москве и Санкт-Петербурге", "Офис").location, "moscow");
 });
 
+
+test("validates and stores an RSS source through /addfeed", async () => {
+  const inserted = [];
+  const DB = {
+    prepare(sql) {
+      let values = [];
+      return {
+        bind(...args) { values = args; return this; },
+        async run() {
+          if (sql.includes("INSERT OR IGNORE INTO feeds")) {
+            inserted.push(values);
+            return { meta: { changes: 1 } };
+          }
+          throw new Error("Unexpected SQL: " + sql);
+        }
+      };
+    }
+  };
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({ ok: true, result: { message_id: 1 } });
+  const makeRequest = text => new Request("https://worker.example/telegram", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message: {
+      chat: { id: 42 }, from: { id: 42 }, text
+    } })
+  });
+  try {
+    await worker.fetch(makeRequest("/addfeed Test feed | https://example.org/rss"), {
+      DB, BOT_TOKEN: "test-token", ADMIN_IDS: "42"
+    });
+    assert.equal(inserted.length, 1);
+    assert.deepEqual(inserted[0], ["Test feed", "https://example.org/rss"]);
+    await worker.fetch(makeRequest("/addfeed Bad feed | javascript:alert(1)"), {
+      DB, BOT_TOKEN: "test-token", ADMIN_IDS: "42"
+    });
+    assert.equal(inserted.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 function createPublishDatabase({ failFinalize = false } = {}) {
   const row = {
     id: 7,
