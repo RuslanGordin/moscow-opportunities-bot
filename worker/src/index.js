@@ -299,7 +299,7 @@ function isAdmin(env, userId) {
 }
 
 const MAX_FEEDS_PER_RUN = 4;
-const MAX_NEW_ITEMS_PER_RUN = 3;
+const MAX_NEW_ITEMS_PER_RUN = 6;
 const MAX_PENDING_TRIAGE_PER_RUN = 1;
 
 async function collect(env) {
@@ -649,7 +649,11 @@ export default {
           await handleCommand(update.message, env);
         } catch (error) {
           console.error(error);
-          await send(env, update.message.chat.id, "Произошла ошибка. Попробуй ещё раз.");
+          try {
+            await send(env, update.message.chat.id, "Произошла ошибка. Попробуй ещё раз.");
+          } catch (sendError) {
+            console.error("Failed to send Telegram error notification:", sendError);
+          }
         }
       }
 
