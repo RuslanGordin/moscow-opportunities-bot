@@ -192,15 +192,15 @@ function extractWorkFormat(text) {
 
 function extractCompany(text) {
   const source = String(text || "");
-  const match = source.match(/Компания\\s+[«"']([^»"']+)[»"']\\s+ищет хорошего специалиста на вакансию/i);
+  const match = source.match(/Компания\s+[«"']([^»"']+)[»"']\s+ищет хорошего специалиста на вакансию/i);
   return match ? match[1].trim() : "";
 }
 
 function cleanEditorialSummary(text) {
   return String(text || "")
-    .replace(/Компания\\s+[«"'][^»"']+[»"']\\s+ищет хорошего специалиста на вакансию\\s+[«"'][^»"']+[»"']\\.?/gi, "")
-    .replace(/Требуется\\s+[«"'][^»"']+[»"']\\.?/gi, "")
-    .replace(/\\s+/g, " ")
+    .replace(/Компания\s+[«"'][^»"']+[»"']\s+ищет хорошего специалиста на вакансию\s+[«"'][^»"']+[»"']\.?/gi, "")
+    .replace(/Требуется\s+[«"'][^»"']+[»"']\.?/gi, "")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
